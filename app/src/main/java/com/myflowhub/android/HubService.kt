@@ -10,6 +10,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import java.io.File
 
 class HubService : Service() {
     class LocalBinder(private val service: HubService) : Binder() {
@@ -17,7 +18,11 @@ class HubService : Service() {
     }
 
     private val binder = LocalBinder(this)
-    private val bridge: HubBridge = StubHubBridge()
+    private val bridge: HubBridge = try {
+        GoHubBridge()
+    } catch (_: Throwable) {
+        StubHubBridge()
+    }
 
     @Volatile
     private var state: HubState = HubState()
@@ -27,10 +32,12 @@ class HubService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                val workDir = File(filesDir, "hub").absolutePath
                 val cfg = HubConfig(
                     addr = intent.getStringExtra(EXTRA_ADDR) ?: ":9000",
                     parentAddr = intent.getStringExtra(EXTRA_PARENT) ?: "",
                     selfId = intent.getStringExtra(EXTRA_SELF_ID) ?: "",
+                    workDir = workDir,
                 )
                 startForegroundWithState("Starting…")
                 state = bridge.start(cfg)
@@ -90,4 +97,3 @@ class HubService : Service() {
         private const val NOTIFICATION_ID = 1
     }
 }
-

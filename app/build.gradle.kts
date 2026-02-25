@@ -42,5 +42,10 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-}
 
+    // AND2: gomobile 生成的 AAR（若尚未生成，保持可编译，运行时会自动回退 stub）
+    val aar = file("libs/myflowhub.aar")
+    if (aar.exists()) {
+        implementation(files(aar))
+    }
+}

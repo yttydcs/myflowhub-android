@@ -1,0 +1,25 @@
+module github.com/yttydcs/myflowhub-android/hubmobile
+
+go 1.23.0
+
+toolchain go1.24.5
+
+require github.com/yttydcs/myflowhub-server v0.0.0
+
+require (
+	github.com/yttydcs/myflowhub-core v0.2.1 // indirect
+	github.com/yttydcs/myflowhub-proto v0.1.1 // indirect
+	github.com/yttydcs/myflowhub-subproto/auth v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/broker v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/exec v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/file v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/flow v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/forward v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/management v0.1.1 // indirect
+	github.com/yttydcs/myflowhub-subproto/topicbus v0.1.0 // indirect
+	github.com/yttydcs/myflowhub-subproto/varstore v0.1.0 // indirect
+)
+
+// 开发态：在本 meta-workspace 下使用同一 workflow 的 Server worktree。
+// 发布态：可移除此 replace，改为依赖 myflowhub-server 的发布版本。
+replace github.com/yttydcs/myflowhub-server => ../../MyFlowHub-Server

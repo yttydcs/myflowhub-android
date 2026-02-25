@@ -27,3 +27,36 @@ class StubHubBridge : HubBridge {
     override fun status(): HubState = state
 }
 
+class GoHubBridge : HubBridge {
+    private val cls: Class<*>
+    private val startMethod: java.lang.reflect.Method
+    private val stopMethod: java.lang.reflect.Method
+    private val statusMethod: java.lang.reflect.Method
+
+    init {
+        cls = Class.forName("com.myflowhub.native.Hubmobile")
+        startMethod = cls.getMethod("Start", String::class.java, String::class.java, String::class.java, String::class.java)
+        stopMethod = cls.getMethod("Stop")
+        statusMethod = cls.getMethod("Status")
+        // Optional probe to help diagnose missing AAR in runtime.
+        runCatching { cls.getMethod("EnsureLinked").invoke(null) }
+    }
+
+    override fun start(config: HubConfig): HubState =
+        call { startMethod.invoke(null, config.addr, config.parentAddr, config.selfId, config.workDir) as String }
+
+    override fun stop(): HubState =
+        call { stopMethod.invoke(null) as String }
+
+    override fun status(): HubState =
+        call { statusMethod.invoke(null) as String }
+
+    private fun call(fn: () -> String): HubState {
+        return try {
+            HubStateJson.parse(fn())
+        } catch (t: Throwable) {
+            HubState(running = false, lastError = t.message ?: t.toString())
+        }
+    }
+}
+
