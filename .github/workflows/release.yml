@@ -1,0 +1,130 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Android
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: repo/MyFlowHub-Android
+
+      - name: Checkout Server (for hubmobile replace)
+        uses: actions/checkout@v4
+        with:
+          repository: yttydcs/myflowhub-server
+          path: repo/MyFlowHub-Server
+
+      - name: Parse tag -> versionName/versionCode
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "非法 tag：${tag}，期望格式 vMAJOR.MINOR.PATCH（例如 v0.1.0）" >&2
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          version_name="${major}.${minor}.${patch}"
+          version_code=$((major*1000000 + minor*1000 + patch))
+          echo "version_name=${version_name}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${version_code}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.5"
+          cache: true
+          cache-dependency-path: repo/MyFlowHub-Android/hubmobile/go.sum
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.1.10909125"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/26.1.10909125" >> "$GITHUB_ENV"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Decode keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]]; then
+            echo "缺少 Secret: ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "${RUNNER_TEMP}/keystore.jks"
+          echo "ANDROID_KEYSTORE_PATH=${RUNNER_TEMP}/keystore.jks" >> "$GITHUB_ENV"
+
+      - name: Build AAR (gomobile)
+        run: bash repo/MyFlowHub-Android/scripts/build_aar.sh
+
+      - name: Assemble release APK (signed)
+        working-directory: repo/MyFlowHub-Android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:assembleRelease --stacktrace \
+            -PversionName=${{ steps.version.outputs.version_name }} \
+            -PversionCode=${{ steps.version.outputs.version_code }}
+
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="repo/MyFlowHub-Android/app/build/outputs/apk/release/app-release.apk"
+          "${ANDROID_SDK_ROOT}/build-tools/34.0.0/apksigner" verify --verbose "${apk}"
+
+      - name: Build info
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_commit="$(git -C repo/MyFlowHub-Android rev-parse HEAD)"
+          server_commit="$(git -C repo/MyFlowHub-Server rev-parse HEAD)"
+          {
+            echo "tag=${GITHUB_REF_NAME}"
+            echo "versionName=${{ steps.version.outputs.version_name }}"
+            echo "versionCode=${{ steps.version.outputs.version_code }}"
+            echo "androidCommit=${android_commit}"
+            echo "serverCommit=${server_commit}"
+            echo "runner=${RUNNER_OS}"
+            echo "builtAtUtc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "go=$(go version)"
+          } > repo/MyFlowHub-Android/build-info.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            repo/MyFlowHub-Android/app/build/outputs/apk/release/app-release.apk
+            repo/MyFlowHub-Android/app/libs/myflowhub.aar
+            repo/MyFlowHub-Android/build-info.txt
