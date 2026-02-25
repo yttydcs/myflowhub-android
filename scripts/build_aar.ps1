@@ -19,7 +19,10 @@ $env:GOWORK = 'off'
 if (-not (Get-Command gomobile -ErrorAction SilentlyContinue)) {
   Write-Host "gomobile not found, installing..." -ForegroundColor Yellow
   go install golang.org/x/mobile/cmd/gomobile@latest
-  $env:Path = "$env:Path;$env:GOPATH\\bin"
+  $goPath = (go env GOPATH).Trim()
+  if ($goPath) {
+    $env:Path = "$env:Path;$goPath\\bin"
+  }
 }
 
 if (-not (Test-Path (Split-Path -Parent $OutFile))) {
@@ -38,4 +41,3 @@ try {
 }
 
 Write-Host "Done: $OutFile" -ForegroundColor Green
-
