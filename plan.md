@@ -1,85 +1,77 @@
-# Plan - Android：Hub + UI（M0 可行性验证）- Android 仓库
+# Plan - Android：Hub（M0）冒烟补齐（LAN 直连 + Parent 链路）
 
-> 位置：`d:\project\MyFlowHub3\worktrees\android-hub-m0\MyFlowHub-Android\plan.md`  
-> 说明：本计划只覆盖 **Android 仓库侧**（App + gomobile 绑定）。Server 侧（hubruntime + parent bootstrap + 集成测试）见：  
-> `d:\project\MyFlowHub3\worktrees\android-hub-m0\MyFlowHub-Server\plan.md`
+> 说明：本 workflow 的目标是补齐 “M0 可行性验证” 的**可复现冒烟**与文档/工具；不扩大到 M1（全量 UI/体验/安全加固）。  
+> 上一个 M0 workflow 的计划与归档已存在于 `docs/plan_archive/` 与 `docs/change/`；本计划是新的补齐 workflow（不会假设旧 worktree 仍存在）。
 
 ## 0. Workflow 信息
 
-- Workflow 名称：`android-hub-m0`
-- 分支（本仓）：`feat/android-hub-m0`
-- Worktree（本仓）：`d:\project\MyFlowHub3\worktrees\android-hub-m0\MyFlowHub-Android`
-- 控制面仓库（仅管理用，禁止实现改动）：`d:\project\MyFlowHub3\repo\MyFlowHub-Android`
+- Workflow 名称：`android-hub-m0-smoke`
+- 分支（本仓）：`fix/android-hub-m0-smoke`
 - Base：`main`
+- 涉及仓库：
+  - `MyFlowHub-Android`：文档/脚本/（可选）PC 侧 smoke 工具
+  - `MyFlowHub-Server`：仅用于本地运行 parent hub 与满足 `hubmobile/go.mod` 的 replace（本 workflow **不做功能改动**）
 
-## 1. 目标（M0 验收口径）
+## 1. 目标（验收口径）
 
 ### 1.1 必须达成
-1) Android 端具备最小 UI：
-   - 配置：监听地址（addr）、父节点地址（parent）、self_id（用于自注册/父链 bootstrap）
-   - 状态：NodeID、监听地址、父链连接状态、最近错误
-   - 控制：Start/Stop
-2) Android 端以 Foreground Service 常驻运行 Hub（用户已接受通知常驻）。
-3) Hub 监听非回环地址，局域网内可见（用户已确认）。
+1) 能从 `MyFlowHub-Android` 构建：
+   - `app/libs/myflowhub.aar`（`gomobile bind`，至少 `android/arm64`）
+   - debug APK（`assembleDebug`）
+2) 真机启动后：Android Hub 以 Foreground Service 常驻运行；监听 `:9000`（或 `0.0.0.0:9000`）对 LAN 可达。
+3) 冒烟验证覆盖两条链路：
+   - **LAN 直连手机 Hub**：PC/另一设备手动填写 `手机IP:port` 访问，`management node_echo` 成功。
+   - **手机 Hub 连接 parent Hub**：手机填写 parent 后成功上联；从 parent 侧对手机节点转发 `management node_echo(target=手机node_id)` 成功。
 
-### 1.2 暂不要求（M1）
-- UI/交互体验对齐 Win。
-- 安全加固（开放注册 + 高权限默认）仅提示风险，不在 M0 改造。
-- 自动更新/Release 流水线。
+### 1.2 不做（明确排除）
+- 自动发现（mDNS/广播）。
+- 子协议全量 UI（本次仅要求“Hub 运行时具备子协议能力”，UI 不对齐 Win）。
+- 安全加固（开放注册/默认高权限仅做风险提示，不在 M0 补齐 workflow 改造）。
 
-## 2. 约束与关键决策（对齐已确认结论）
+## 2. 当前状态（已知问题）
 
-- **不重写 Hub**：Android 只是宿主壳，复用 Go Hub 栈（Server 侧已提供 `hubruntime`）。
-- **绑定方式**：优先 `gomobile bind` 产出 AAR（至少 `android/arm64`）。
-- **工作目录**：Go 侧需把 `workdir` 指向 App 私有目录（用于 `config/*` 相对路径写入）。
-- **后台策略**：Foreground Service + 常驻通知（M0 即采用）。
+- M0 代码已合并到 `main`（Android 壳 + `hubruntime` + parent bootstrap watcher）。
+- `docs/m0_smoke.md` 仍引用已删除的旧 worktree 路径，且验证步骤不完整（缺少 parent 链路）。
+- 缺少一个“不依赖 Win UI”的 PC 侧最小 smoke 工具（可选但推荐），会降低交接与排障效率。
 
 ## 3. 计划拆分（Checklist）
 
-> 约定：每个任务必须有回滚点；不得引入计划外改动；新增任务需先更新本 plan 并确认。
+> 约定：每个任务必须有回滚点；不得引入计划外改动；新增任务需先更新本 plan 并重新确认。
 
-### AND1 - Android App 骨架（Compose + Foreground Service）
-- 目标：能安装 APK，并通过 UI 启停 Hub 前台服务；常驻通知可见；显示最小状态。
-- 涉及模块/文件（预期）：
-  - `app/`（Kotlin + Compose）
-  - `HubService`（Foreground Service）
-  - `MainActivity`（配置页 + 状态页）
-  - 持久化：`SharedPreferences` 或 `DataStore`（二选一，按实现便利）
+### ANDS1 - 修正/补全 M0 冒烟文档（两条链路）
+- 目标：让 `docs/m0_smoke.md` 能在**没有旧 worktree 的前提下**复现，并补齐 parent 链路验证步骤。
+- 涉及文件：
+  - `docs/m0_smoke.md`
 - 验收条件：
-  - `./gradlew :app:assembleDebug` 成功
-  - 真机安装后可 Start/Stop，且通知常驻可见
-- 回滚点：revert 提交。
+  - 文档包含：构建 AAR、构建 APK、安装启动、LAN 直连验证、parent 链路验证、常见问题排障。
+  - 所有路径/命令均可在 “仅 clone 本仓 + 相邻仓库” 的情况下执行（不引用已删除的历史 worktree 路径）。
+- 测试点：按文档在真机完成两条链路冒烟。
+- 回滚点：revert 本任务提交。
 
-### AND2 - gomobile 绑定（AAR）+ 集成到 App
-- 目标：封装一个 gomobile 友好的 Go 包，产出 AAR 并在 App 内调用 `Start/Stop/Status`。
-- 设计要点：
-  - Go 包对外只暴露：`Start(opts)` / `Stop()` / `Status()`（返回 JSON 字符串也可）
-  - `workdir` 使用 `context.getFilesDir()` 或 `context.getNoBackupFilesDir()` 下子目录
-  - `self_id` 由 UI 配置（默认可用随机 UUID；M0 允许手工输入）
+### ANDS2 - （推荐）提供 PC 侧最小 smoke 工具（register + node_echo + list_nodes）
+- 目标：提供一个最小可执行/可 `go run` 的工具，避免完全依赖 Win UI 做冒烟。
+- 设计约束：
+  - 只用标准库实现 HeaderTcp(v2) 编解码与 JSON message（避免引入额外 Go 依赖）。
+  - 必须包含输入校验与清晰错误输出（便于排障：网络不可达/未注册/target 不存在等）。
+- 预期位置（可调整，但需在本 plan 中固定）：
+  - `tools/hubsmoke/`（`go.mod` + `main.go`）
 - 验收条件：
-  - AAR 构建成功（至少 arm64）
-  - App 启动后 Hub 真正开始监听（局域网可连）
-- 回滚点：revert 提交。
+  - 直连手机：`register -> node_echo` 成功。
+  - 连接 parent：对 `target=手机node_id` 的 `node_echo` 成功。
+- 回滚点：删除 `tools/hubsmoke/` 并 revert 文档引用。
 
-### AND3 - M0 冒烟脚本/文档
-- 目标：把验证步骤写成可复现文档（含依赖安装、命令与期望结果）。
-- 验收条件：
-  - 文档包含：构建 AAR、构建 APK、启动 Hub、LAN 设备验证（至少 management `node_echo`）
-- 回滚点：revert 提交。
-
-### 3.3 - Code Review（强制）
+### ANDS3 - Code Review（强制）
 - 按全局 3.3 清单逐项输出结论（通过/不通过）。
-- 不通过：返回对应任务修正，重新 review。
+- 不通过：回到对应任务修正，再次 Review。
 
-### 4 - 归档变更（强制）
+### ANDS4 - 归档变更（强制）
 - 在本 worktree 根目录创建 `docs/change/` 并新增归档文档：
-  - `docs/change/YYYY-MM-DD_android-hub-m0.md`
-- 必须包含：任务映射、关键决策与权衡、验证方式与结果、回滚方案。
+  - `docs/change/YYYY-MM-DD_android-hub-m0-smoke.md`
+- 必须包含：任务映射、关键决策与权衡、验证方式与结果（含两条链路）、回滚方案。
 
-## 4. 验证命令（Android）
+## 4. 依赖与注意事项
 
-```powershell
-cd d:\project\MyFlowHub3\worktrees\android-hub-m0\MyFlowHub-Android
-./gradlew :app:assembleDebug
-```
+- Android 构建依赖：Go、JDK（建议 17）、Android SDK（建议 android-34）、NDK（gomobile 需要）、ADB。
+- 网络注意：手机与 PC 必须同一 LAN；路由器需关闭 AP isolation；PC 防火墙需放行出站/入站（视测试方向）。
+- 监听注意：务必使用 `:9000` 或 `0.0.0.0:9000`，不要只监听 `127.0.0.1`。
 
