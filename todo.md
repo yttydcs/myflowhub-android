@@ -15,6 +15,8 @@
   - `./gradlew -v` / Actions `./gradlew :app:assembleDebug`：
     - `java.lang.NoClassDefFoundError: org/gradle/cli/CommandLineParser`
     - `URISyntaxException: Illegal character in scheme name ... https\\://services.gradle.org/...`
+  - `./gradlew :app:assembleDebug`：
+    - `Script compilation errors`（`app/build.gradle.kts` 中 `gradle.taskGraph.whenReady { ... }` 报 Closure 相关类型错误）
 - 根因：
   - `gomobile bind` 默认 `androidapi=16`
   - 但 CI 安装的 **NDK r26** 仅支持 **API 21..34**
@@ -24,6 +26,7 @@
     - 现象：运行 `gradlew` 只加载 `gradle-wrapper.jar`，但该 jar 内没有所需类，导致 `NoClassDefFoundError`
     - 备注：当前 jar 内含一个嵌套的 `gradle-wrapper.jar`（内层 jar 含缺失类），但脚本未将其加入 classpath
   - `gradle/wrapper/gradle-wrapper.properties` 的 `distributionUrl` 转义错误（`https\\://`），导致 wrapper 解析 URL 失败
+  - `app/build.gradle.kts` 使用 `gradle.taskGraph.whenReady { ... }` 在 Kotlin DSL 下编译失败（被解析到 Groovy Closure 重载）
 - 现状配置：
   - `app/build.gradle.kts`：`minSdk=26`
   - Workflows：安装 `ndk;26.1.10909125`，Go 为 `1.24.5`
@@ -102,7 +105,20 @@
 - 回滚点：
   - 还原 `gradlew` mode 或移除 `chmod` 步骤
 
-### AND-CI-04：归档变更
+### AND-CI-04：修复 app/build.gradle.kts 的 Kotlin DSL 编译错误
+
+- 目标：确保 `./gradlew :app:assembleDebug` 不因 `app/build.gradle.kts` 脚本编译错误而失败；同时保持 Release 构建的“版本注入 + 签名”强制校验。
+- 方案：移除 `gradle.taskGraph.whenReady { ... }`（Closure 重载导致 Kotlin DSL 编译失败），改用 `gradle.startParameter.taskNames` 判断是否请求 Release 相关任务。
+- 涉及文件：
+  - `app/build.gradle.kts`
+- 验收条件：
+  - `./gradlew -v` 可正常运行
+  - Actions：`./gradlew :app:assembleDebug` 通过
+  - 本地验证：执行 `./gradlew :app:assembleRelease`（不传 `-PversionName/-PversionCode`）会被明确报错拦截（符合预期）
+- 回滚点：
+  - 还原 `app/build.gradle.kts` 的 release 校验逻辑
+
+### AND-CI-05：归档变更
 
 - 目标：按规范在当前 worktree 的 `docs/change/` 归档本次修复。
 - 涉及文件：
