@@ -10,9 +10,11 @@
 
 - 失败日志（GitHub Actions）：
   - `gomobile: ... ndk/26.x ... unsupported API version 16 (not in 21..34)`
+  - `javac ... Hubmobile.java ... package com.myflowhub.native.hubmobile; ... <identifier> expected`
 - 根因：
   - `gomobile bind` 默认 `androidapi=16`
   - 但 CI 安装的 **NDK r26** 仅支持 **API 21..34**
+  - `javapkg` 默认值含 Java 关键字：`native`，导致生成的 `package com.myflowhub.native...` 非法
 - 现状配置：
   - `app/build.gradle.kts`：`minSdk=26`
   - Workflows：安装 `ndk;26.1.10909125`，Go 为 `1.24.5`
@@ -25,20 +27,28 @@
 ### AND-CI-01：修复 AAR 构建脚本的 androidapi
 
 - 目标：为 `gomobile bind` 增加 `-androidapi 26`（默认值），并允许必要时可配置覆盖。
+- 目标（补充）：修复 `javapkg` 默认值，避免使用 Java 关键字；并同步 Android 侧反射加载的类名，确保运行时能正确加载 AAR。
+- 约定（已确认）：JavaPkg 默认值使用 `com.myflowhub.gomobile`（A）。
 - 备注：`gomobile bind` 内部会调用 `gobind`，而 `gobind` 会通过 `go/packages` 在“当前 module 依赖”中定位 `golang.org/x/mobile/bind`。因此需要在 `hubmobile/go.mod` 中显式依赖 `golang.org/x/mobile`，否则会报 `no Go package in golang.org/x/mobile/bind`。
 - 涉及文件：
   - `scripts/build_aar.sh`
   - `scripts/build_aar.ps1`
   - `hubmobile/go.mod`
   - `hubmobile/go.sum`
+  - `app/src/main/java/com/myflowhub/android/HubBridge.kt`
+  - `docs/m0_smoke.md`
 - 验收条件：
   - 两个脚本都将 `gomobile bind` 调用改为包含 `-androidapi 26`
   - 输出日志能明确打印使用的 `androidapi`
   - 对 `androidapi` 做基本校验（必须为正整数且 >= 21）
+  - `javapkg` 默认值不包含 Java 关键字；生成 Java `package` 合法
   - `hubmobile/go.mod` 显式依赖 `golang.org/x/mobile`（与 CI 中安装的 gomobile 版本一致）
+  - Android 侧能正确 `Class.forName(...)` 找到 gomobile 生成类（至少在集成测试/冒烟测试中可验证）
+  - `docs/m0_smoke.md` 的示例 `JavaPkg` 与代码默认值一致
 - 测试点：
   - `bash -n scripts/build_aar.sh`（若本机无 bash，可跳过）
   - PowerShell 脚本语法解析（不实际执行 Android 构建）
+  - Actions：`Build AAR (gomobile)` 通过；debug APK 能安装启动并进入后台服务（最小冒烟）
 - 回滚点：
   - 还原对应脚本提交
 

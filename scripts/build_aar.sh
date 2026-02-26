@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TARGET="${1:-android/arm64}"
-JAVA_PKG="${2:-com.myflowhub.native}"
+JAVA_PKG="${2:-com.myflowhub.gomobile}"
 OUT_FILE="${3:-app/libs/myflowhub.aar}"
 ANDROID_API="${4:-${ANDROID_API:-26}}"
 

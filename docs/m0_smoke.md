@@ -22,7 +22,7 @@
 cd d:\project\MyFlowHub3\repo\MyFlowHub-Android
 
 # 产物输出到 app/libs/myflowhub.aar
-.\scripts\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.native -OutFile app/libs/myflowhub.aar
+.\scripts\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar
 ```
 
 成功后应存在：`app/libs/myflowhub.aar`。
