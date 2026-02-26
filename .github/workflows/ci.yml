@@ -35,7 +35,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.5"
+          go-version: "1.25.7"
           cache: true
           cache-dependency-path: repo/MyFlowHub-Android/hubmobile/go.sum
 
