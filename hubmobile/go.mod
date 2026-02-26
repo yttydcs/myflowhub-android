@@ -1,8 +1,6 @@
 module github.com/yttydcs/myflowhub-android/hubmobile
 
-go 1.23.0
-
-toolchain go1.24.5
+go 1.25.0
 
 require github.com/yttydcs/myflowhub-server v0.0.0
 
@@ -18,6 +16,7 @@ require (
 	github.com/yttydcs/myflowhub-subproto/management v0.1.1 // indirect
 	github.com/yttydcs/myflowhub-subproto/topicbus v0.1.0 // indirect
 	github.com/yttydcs/myflowhub-subproto/varstore v0.1.0 // indirect
+	golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4 // indirect
 )
 
 // 开发态：在本 meta-workspace 下使用同一 workflow 的 Server worktree。

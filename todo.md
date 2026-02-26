@@ -25,13 +25,17 @@
 ### AND-CI-01：修复 AAR 构建脚本的 androidapi
 
 - 目标：为 `gomobile bind` 增加 `-androidapi 26`（默认值），并允许必要时可配置覆盖。
+- 备注：`gomobile bind` 内部会调用 `gobind`，而 `gobind` 会通过 `go/packages` 在“当前 module 依赖”中定位 `golang.org/x/mobile/bind`。因此需要在 `hubmobile/go.mod` 中显式依赖 `golang.org/x/mobile`，否则会报 `no Go package in golang.org/x/mobile/bind`。
 - 涉及文件：
   - `scripts/build_aar.sh`
   - `scripts/build_aar.ps1`
+  - `hubmobile/go.mod`
+  - `hubmobile/go.sum`
 - 验收条件：
   - 两个脚本都将 `gomobile bind` 调用改为包含 `-androidapi 26`
   - 输出日志能明确打印使用的 `androidapi`
   - 对 `androidapi` 做基本校验（必须为正整数且 >= 21）
+  - `hubmobile/go.mod` 显式依赖 `golang.org/x/mobile`（与 CI 中安装的 gomobile 版本一致）
 - 测试点：
   - `bash -n scripts/build_aar.sh`（若本机无 bash，可跳过）
   - PowerShell 脚本语法解析（不实际执行 Android 构建）
