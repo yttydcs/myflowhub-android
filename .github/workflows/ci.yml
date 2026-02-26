@@ -60,7 +60,41 @@ jobs:
 
       - name: Assemble debug APK
         working-directory: repo/MyFlowHub-Android
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee gradle-debug.log
+
+      - name: Summarize Gradle failure
+        if: failure()
+        working-directory: repo/MyFlowHub-Android
+        run: |
+          set -euo pipefail
+          if [[ ! -f gradle-debug.log ]]; then
+            echo "::error::assembleDebug failed but gradle-debug.log not found"
+            exit 0
+          fi
+
+          msg="$(
+            awk '
+              $0 ~ /^\\* What went wrong:/ { inSection=1; next }
+              inSection && $0 ~ /^> / { sub(/^> /, \"\"); print; exit }
+              inSection && $0 ~ /^\\* / { exit }
+            ' gradle-debug.log | head -n 1
+          )"
+          if [[ -z "${msg}" ]]; then
+            msg="$(tail -n 80 gradle-debug.log | tr -d '\r' | sed -e 's/[[:space:]]\\+/ /g' | tail -n 1)"
+          fi
+          msg="$(echo "${msg}" | tr -d '\r' | sed -e 's/[[:space:]]\\+/ /g' | cut -c1-800)"
+          echo "::error::assembleDebug failed: ${msg}"
+
+      - name: Upload Gradle log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myflowhub-android-debug-log
+          if-no-files-found: error
+          path: |
+            repo/MyFlowHub-Android/gradle-debug.log
 
       - name: Upload artifacts (debug)
         uses: actions/upload-artifact@v4
