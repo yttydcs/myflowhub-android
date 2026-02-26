@@ -11,10 +11,12 @@
 - 失败日志（GitHub Actions）：
   - `gomobile: ... ndk/26.x ... unsupported API version 16 (not in 21..34)`
   - `javac ... Hubmobile.java ... package com.myflowhub.native.hubmobile; ... <identifier> expected`
+  - `Assemble debug APK`：`Process completed with exit code 126.`
 - 根因：
   - `gomobile bind` 默认 `androidapi=16`
   - 但 CI 安装的 **NDK r26** 仅支持 **API 21..34**
   - `javapkg` 默认值含 Java 关键字：`native`，导致生成的 `package com.myflowhub.native...` 非法
+  - `gradlew` 文件未设置可执行位（Linux checkout 后 `./gradlew` 无法执行，exit 126）
 - 现状配置：
   - `app/build.gradle.kts`：`minSdk=26`
   - Workflows：安装 `ndk;26.1.10909125`，Go 为 `1.24.5`
@@ -68,7 +70,24 @@
 - 回滚点：
   - 还原 workflow 的 Go 版本调整提交
 
-### AND-CI-03：归档变更
+### AND-CI-03：修复 Linux 下 gradlew 不可执行（exit 126）
+
+- 目标：确保 GitHub Actions（Ubuntu）可执行 `./gradlew`，避免 `Assemble debug APK` 失败。
+- 方案候选（优先级从高到低）：
+  1) **推荐**：将仓库中的 `gradlew` 设置为可执行（git mode 100755），让任何环境 checkout 后都能直接运行。
+  2) 备选：在 workflow 中执行 `chmod +x repo/MyFlowHub-Android/gradlew`（对当前 CI 有效，但依赖 workflow）。
+- 涉及文件：
+  - `gradlew`（仅文件 mode 变更，内容不变）
+  - （可选）`.github/workflows/ci.yml`、`.github/workflows/release.yml`
+- 验收条件：
+  - `git ls-files -s gradlew` 显示为 `100755 ... gradlew`
+  - Actions：`Assemble debug APK` 步骤可执行并通过
+- 测试点：
+  - 推送分支触发 CI（debug）成功
+- 回滚点：
+  - 还原 `gradlew` mode 或移除 `chmod` 步骤
+
+### AND-CI-04：归档变更
 
 - 目标：按规范在当前 worktree 的 `docs/change/` 归档本次修复。
 - 涉及文件：
