@@ -14,6 +14,7 @@
   - `Assemble debug APK`：`Process completed with exit code 126.`
   - `./gradlew -v` / Actions `./gradlew :app:assembleDebug`：
     - `java.lang.NoClassDefFoundError: org/gradle/cli/CommandLineParser`
+    - `URISyntaxException: Illegal character in scheme name ... https\\://services.gradle.org/...`
 - 根因：
   - `gomobile bind` 默认 `androidapi=16`
   - 但 CI 安装的 **NDK r26** 仅支持 **API 21..34**
@@ -22,6 +23,7 @@
   - `gradle/wrapper/gradle-wrapper.jar` 内容异常：缺少 `gradle-cli` 等必需类（例如 `org.gradle.cli.CommandLineParser`）
     - 现象：运行 `gradlew` 只加载 `gradle-wrapper.jar`，但该 jar 内没有所需类，导致 `NoClassDefFoundError`
     - 备注：当前 jar 内含一个嵌套的 `gradle-wrapper.jar`（内层 jar 含缺失类），但脚本未将其加入 classpath
+  - `gradle/wrapper/gradle-wrapper.properties` 的 `distributionUrl` 转义错误（`https\\://`），导致 wrapper 解析 URL 失败
 - 现状配置：
   - `app/build.gradle.kts`：`minSdk=26`
   - Workflows：安装 `ndk;26.1.10909125`，Go 为 `1.24.5`
@@ -88,6 +90,7 @@
 - 涉及文件：
   - `gradlew`（仅文件 mode 变更，内容不变）
   - `gradle/wrapper/gradle-wrapper.jar`
+  - `gradle/wrapper/gradle-wrapper.properties`
   - （可选）`.gitattributes`（强制 `gradlew` 使用 LF，防止未来被改回 CRLF）
   - （可选）`.github/workflows/ci.yml`、`.github/workflows/release.yml`
 - 验收条件：
