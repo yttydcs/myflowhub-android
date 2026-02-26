@@ -61,18 +61,15 @@ if (anySigningEnvProvided && !releaseSigningEnabled) {
     throw GradleException("Release 签名环境变量不完整：需要 ANDROID_KEYSTORE_PATH/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD 全部设置")
 }
 
-gradle.taskGraph.whenReady { taskGraph ->
-    val isReleaseBuildRequested = taskGraph.allTasks.any { task ->
-        val n = task.name
-        n.endsWith("Release", ignoreCase = true) || n.contains("Release", ignoreCase = true)
+val isReleaseBuildRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.endsWith("Release", ignoreCase = true) || taskName.contains("Release", ignoreCase = true)
+}
+if (isReleaseBuildRequested) {
+    if (!versionOverrideEnabled) {
+        throw GradleException("构建 Release 需要注入版本号：-PversionName=1.2.3 -PversionCode=1002003（建议由 tag 解析得到）")
     }
-    if (isReleaseBuildRequested) {
-        if (!versionOverrideEnabled) {
-            throw GradleException("构建 Release 需要注入版本号：-PversionName=1.2.3 -PversionCode=1002003（建议由 tag 解析得到）")
-        }
-        if (!releaseSigningEnabled) {
-            throw GradleException("构建 Release 需要签名：请设置 ANDROID_KEYSTORE_PATH/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD")
-        }
+    if (!releaseSigningEnabled) {
+        throw GradleException("构建 Release 需要签名：请设置 ANDROID_KEYSTORE_PATH/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD")
     }
 }
 
