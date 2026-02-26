@@ -41,11 +41,13 @@
 ### AND-CI-02：稳定 GitHub Actions 的 Go 版本
 
 - 目标：将 `.github/workflows/ci.yml` 与 `.github/workflows/release.yml` 的 `actions/setup-go` 调整为 `1.25.x`（建议精确到 `1.25.7`）。
+- 备注：由于本次将 `gomobile bind` 固定为 `-androidapi 26`，Actions 需要额外安装 `platforms;android-26`（提供 `android.jar`，否则 AAR 构建会失败）。
 - 涉及文件：
   - `.github/workflows/ci.yml`
   - `.github/workflows/release.yml`
 - 验收条件：
   - Workflows 中 Go 版本不再为 `1.24.5`
+  - 安装 Android packages 时包含 `platforms;android-26`
   - 不再出现因 `gomobile@latest requires go >= 1.25` 而触发的隐式 toolchain 切换日志（或至少显著减少下载/切换的不确定性）
 - 测试点：
   - 推送分支触发 CI（debug）成功
@@ -68,4 +70,3 @@
 
 - **签名密钥安全**：本次不轮换 keystore；但密钥/密码不应进入仓库与日志，且建议后续轮换。
 - **平台差异**：CI 在 Ubuntu；本地脚本（尤其 `.ps1`）仅做语法校验，不保证可在缺少 Android SDK/NDK 的环境直接跑通。
-
