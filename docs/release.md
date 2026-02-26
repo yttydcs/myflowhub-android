@@ -29,6 +29,10 @@
 
 以下命令仅为示例；请妥善保存 keystore 与密码（遗失将无法签名同一包名的后续版本）。
 
+> 注意：
+> - `keytool` 来自 **JDK**（部分 JRE 可能不包含）。若提示找不到 `keytool`，请安装 JDK 17+ 或使用 Android Studio 自带的 `...\\Android Studio\\jbr\\bin\\keytool.exe`。
+> - 下方示例的 `\\` 是 bash 的换行续写；在 **PowerShell** 中请使用一行命令，或改用反引号 `` ` `` 续行。
+
 ```bash
 keytool -genkeypair \
   -keystore myflowhub-release.jks \
@@ -40,6 +44,12 @@ keytool -genkeypair \
   -keysize 2048 \
   -validity 36500 \
   -dname "CN=MyFlowHub, OU=Self, O=Self, L=Self, S=Self, C=US"
+```
+
+PowerShell（Windows，一行命令示例）：
+
+```powershell
+keytool -genkeypair -v -keystore myflowhub-release.jks -storetype JKS -storepass "<STORE_PASSWORD>" -alias "<KEY_ALIAS>" -keypass "<KEY_PASSWORD>" -keyalg RSA -keysize 2048 -validity 36500 -dname "CN=MyFlowHub, OU=Self, O=Self, L=Self, S=Self, C=US"
 ```
 
 ### 2.4 keystore 转 base64
