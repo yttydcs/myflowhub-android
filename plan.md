@@ -1,135 +1,187 @@
-# Plan - Android：GitHub Actions 自动构建与发布 APK（CI + Release）
+# Plan - Android：手机作为 Hub（v1）——登录 + Devices + 日志 + 子协议能力基座
 
-> 说明：本 workflow 只解决“在 GitHub 上全自动产出 APK 并发布”的交付链路问题；不扩大到 UI/Hub 功能演进。
-> - CI：push/PR 构建 debug APK（并内置 Hub AAR），作为 Actions Artifact 供随时下载验证。
-> - Release：push tag `vMAJOR.MINOR.PATCH` 后，自动构建并发布 **已签名** release APK 到 GitHub Releases，并同时上传 `myflowhub.aar` 与 `build-info.txt`。
+> 说明：本 workflow 目标是让 Android 端具备“作为 Hub + 作为 Client 控制 Hub”的最小闭环能力，并为后续逐个跑通子协议 UI 打好基座。
+> - 自动发现：不做（仅手动填写 `ip:port`）
+> - broker：不纳入本版本
+> - 子协议：目标对齐现状（`auth/exec/file/flow/management/topicbus/varstore`），允许逐步跑通
 
 ## 0. Workflow 信息
 
-- Workflow 名称：`android-apk-release`
-- 分支（本仓）：`feat/android-apk-release`
+- Workflow 名称：`android-hub-ui-v1`
+- 分支（本仓）：`feat/android-login-devices`
 - Base：`main`
+- Worktree：`worktrees/feat-android-login-devices`
 - 涉及仓库：
-  - `MyFlowHub-Android`：新增 GitHub Actions、Gradle 签名/版本注入、文档补充
-  - `MyFlowHub-Server`：CI 中仅 checkout（用于满足 `hubmobile/go.mod` 的 `replace ../../MyFlowHub-Server`），**不做功能改动**
+  - `MyFlowHub-Android`：Kotlin UI、前台服务、hubmobile（gomobile AAR）
+  - 依赖：`myflowhub-server` / `myflowhub-sdk` / `myflowhub-proto`（Go module 依赖；不在本 workflow 直接修改）
 
-## 1. 目标（验收口径）
+## 1. 背景与澄清
 
-### 1.1 必须达成
-1) CI（push/PR）：
-   - 自动构建 `app-debug.apk`（debug），并上传为 Actions Artifact。
-   - 构建时先生成 `app/libs/myflowhub.aar`（gomobile bind，至少 `android/arm64`），确保 APK 内置 Hub 能力。
-2) Release（tag）：
-   - 推送 tag `vMAJOR.MINOR.PATCH` 后自动创建/更新 GitHub Release。
-   - 自动构建并上传 **已签名** `app-release.apk`。
-   - 同时上传 `app/libs/myflowhub.aar` 与 `build-info.txt`（包含 Android/Server commit、构建环境信息）。
-3) 版本规则：
-   - `versionName = MAJOR.MINOR.PATCH`（去掉 `v` 前缀）
-   - `versionCode = MAJOR*1_000_000 + MINOR*1_000 + PATCH`
-   - 若 tag 不符合格式，Release workflow 直接失败（避免产出错误版本）。
+- “为什么看起来没有引用 server？”
+  - `hubmobile` 的 Go 代码通过 `github.com/yttydcs/myflowhub-server/hubruntime` 引入了 Server 侧的 Hub 与默认子协议实现；但当前只向 Android 暴露了极少数 API（`Start/Stop/Status/EnsureLinked`），所以 UI 侧还无法使用完整能力。
+  - 本 workflow 的工作重点不是重写 server，而是：
+    1) 把“客户端会话/签名/Send&Await/日志/错误”能力下沉到 Go（AAR）；
+    2) Kotlin Compose 做页面与交互，参照 Win 的 `Home/Devices`。
 
-### 1.2 不做（明确排除）
+## 2. 目标（验收口径）
+
+### 2.1 必须达成（v1）
+
+1) Hub（本机）：
+   - 手机可启动/停止前台 Hub 服务；LAN 可见（沿用现状）。
+   - 支持手动填写 `parent ip:port` 建立父子链路（复用/补齐 `EnsureLinked` 相关能力与错误提示）。
+2) Client（操作 Hub）：
+   - 支持操作 “本机 Hub” 与 “远端 Hub” 两种目标（手动填写 `ip:port`；不做自动发现）。
+   - 统一设备身份：同一套 Node Key 用于（本机 Hub）与（Client 登录/签名）。（已确认）
+3) 登录页（参照 Win）：
+   - 提供：连接、注册、登录；展示本机 `NodeID`、当前连接目标、最近一次错误信息。
+4) Devices 页面（原 Management 改名为 Devices，参照 Win Devices）：
+   - 显示树（直接子节点）；
+   - 显示子树（按需展开/加载）；
+   - 选中节点后展示详细信息；
+   - 支持查看/编辑节点配置（`config list/get/set`）。
+5) 日志：
+   - 展示运行日志 + 关键操作日志；
+   - Go 侧维护日志 ring buffer，保留 10k 行；Android 可分页读取（cursor/limit）。
+6) 子协议能力基座：
+   - Go 侧提供通用 `Send&Await`（`subproto+action+payloadJSON`）能力；
+   - UI 侧按 “协议独立入口（B）” 提供入口页（可先复用通用控制台组件），允许协议逐步跑通。
+
+### 2.2 不做（明确排除）
+
 - 自动发现（mDNS/广播）。
-- UI/Hub 功能演进与安全加固（仅交付链路）。
+- broker 子协议及其 UI。
+- 日志导出（仅保留查看与 10k ring buffer）。
+- 额外安全加固/密钥轮换（后续另开 workflow）。
 
-## 2. 当前状态（已知问题）
+## 3. 当前状态
 
-- 当前仓库无 `.github/workflows`，GitHub 不会自动构建 APK。
-- `app` 缺少“从 CI 注入版本号/签名配置”的通用入口（需补齐以支持全自动发布）。
+- Android 端已具备：前台 Hub Service + 最小启动/停止/状态页面。
+- `hubmobile` 目前仅暴露：`Start/Stop/Status/EnsureLinked` 等少量能力；缺少登录、管理协议封装、日志拉取等接口。
 
-## 3. 计划拆分（Checklist）
+## 4. 开发环境注意事项（Worktree）
 
-> 约定：每个任务必须有回滚点；不得引入计划外改动；新增任务需先更新本 plan 并重新确认。
+- `hubmobile/go.mod` 使用 `replace github.com/yttydcs/myflowhub-server => ../../MyFlowHub-Server`
+  - CI 环境下（Android repo 与 Server repo 同级）可用；
+  - 在本 worktree 目录结构下，为了本地构建 AAR，需要提供 `worktrees/MyFlowHub-Server` 路径。
+- 推荐做法（不改代码、不影响 CI）：在 `d:/project/MyFlowHub3/worktrees` 下创建一个目录 junction：
+  - `worktrees/MyFlowHub-Server` -> `repo/MyFlowHub-Server`
+  - （仅本机开发便利，不提交仓库）
 
-### ANDA1 - 归档旧计划（文档）
-- 目标：将已完成的历史 workflow 计划归档，避免后续混淆。
+## 5. 计划拆分（Checklist）
+
+> 约定：不得引入计划外改动；若需新增任务，先更新本 plan 并重新确认。
+
+### ANDH1 - 归档旧计划（文档）
+
+- 目标：将上一个 workflow 的 `plan.md`/`todo.md` 归档，避免与本 workflow 混淆。
 - 涉及文件：
-  - `docs/plan_archive/plan_archive_2026-02-25_android-hub-m0-smoke.md`（新增）
-  - `plan.md`（重写为本 workflow 的计划）
-- 验收条件：旧计划内容可追溯，本计划内容可独立执行。
+  - `docs/plan_archive/plan_archive_2026-02-26_android-apk-release-ci.md`（新增/已生成）
+  - `docs/plan_archive/todo_archive_2026-02-26_fix-android-ci-gomobile-androidapi.md`（新增/已生成）
+  - `plan.md`（本文件）
+- 验收条件：归档文件可追溯；本计划可独立执行。
 - 回滚点：revert 本任务提交。
 
-### ANDA2 - Gradle：支持版本号注入（tag -> versionName/versionCode）
-- 目标：支持通过 `-PversionName/-PversionCode` 覆盖 `defaultConfig`，并包含输入校验。
-- 涉及文件：
-  - `app/build.gradle.kts`
+### ANDH2 - Go(AAR)：设备身份/会话/鉴权基座
+
+- 目标：
+  - 初始化/加载 Node Keys（持久化到 app workdir 下的 `hub/config/`，沿用 server/auth 的文件结构）；
+  - 连接/关闭会话（目标 hub：本机/远端）；
+  - 注册/登录（参照 Win 签名与 payload 结构）。
+- 涉及模块 / 文件（初稿，按实现调整）：
+  - `hubmobile/*.go`（新增/修改）
+  - （依赖）`myflowhub-sdk/session`、`myflowhub-sdk/await`、`myflowhub-proto/protocol/auth`
+  - Android bridge：`app/src/main/java/com/myflowhub/android/HubBridge.kt`
 - 验收条件：
-  - 本地执行 `./gradlew :app:assembleDebug -PversionName=1.2.3 -PversionCode=1002003` 可通过。
-  - 未提供参数时保持当前默认版本行为不变。
-- 测试点：Gradle 构建成功；参数非法时有清晰错误信息。
+  - Go 侧暴露稳定的 Java API：`EnsureKeys`、`Connect`、`Close`、`Register`、`Login`、`GetSelfNodeId`、`GetLastError`
+  - 失败时返回可展示的错误信息（不 silent fail）。
+- 测试点：
+  - Go 单元测试（如可行）：签名/序列化结果一致性、错误分支。
+  - Android 手工：输入 `ip:port` -> login 成功/失败提示正确。
 - 回滚点：revert 本任务提交。
 
-### ANDA3 - Gradle：Release 签名支持（GitHub Secrets）
-- 目标：在 CI/release 场景通过环境变量注入 keystore 与密码，实现稳定签名（便于覆盖安装升级）。
-- 涉及文件：
-  - `app/build.gradle.kts`
+### ANDH3 - Go(AAR)：Devices（management 协议）封装
+
+- 目标：提供 Devices 页面所需的 management action 封装，并返回 JSON 给 Kotlin 直接渲染。
+- 涉及模块 / 文件：
+  - `hubmobile/*.go`
+  - （依赖）`myflowhub-proto/protocol/management`
 - 验收条件：
-  - 当签名 env 完整时：`assembleRelease` 产出已签名 APK。
-  - 当签名 env 缺失时：不影响 debug 构建；release workflow 会在前置校验阶段失败（避免产出未签名 release）。
+  - 暴露 API：`ListNodes`、`ListSubtree`、`NodeInfo`、`ConfigList`、`ConfigGet`、`ConfigSet`
+  - 性能：避免 N+1（树加载按需；细节仅在选中节点时请求）
+- 测试点：
+  - Android 手工：能拉到树/子树；详情展示正确；配置改动可生效且有错误提示。
 - 回滚点：revert 本任务提交。
 
-### ANDA4 - 脚本：提供 Linux/macOS 可用的 AAR 构建脚本
-- 目标：让 GitHub Actions 可复用脚本生成 `app/libs/myflowhub.aar`（与现有 `scripts/build_aar.ps1` 对齐）。
-- 涉及文件（建议）：
-  - `scripts/build_aar.sh`（新增）
-- 验收条件：在 CI 中可执行并成功生成 AAR。
-- 回滚点：删除脚本并调整 workflow 调用方式。
+### ANDH4 - Go(AAR)：日志 ring buffer（10k 行）
 
-### ANDA5 - GitHub Actions：CI（push/PR）构建 debug APK + Artifact
-- 目标：push/PR 自动构建（含 AAR）并上传 artifact。
-- 涉及文件：
-  - `.github/workflows/ci.yml`（新增）
+- 目标：将 hubruntime 的 logger 接入可读的 ring buffer，提供分页读取 API（cursor/limit）。
+- 涉及模块 / 文件：
+  - `hubmobile/*.go`
 - 验收条件：
-  - Actions 运行成功，artifact 包含 `app-debug.apk`（与可选 `myflowhub.aar`）。
-- 测试点：在 GitHub 上触发一次 CI（可通过 PR/手动 commit 验证）。
-- 回滚点：删除 workflow 文件。
+  - 默认保留 10k 行（可配置但不在 UI 暴露）；
+  - 读取 API 可增量拉取，不重复/不丢失（在单进程内）。
+- 测试点：
+  - Go 单元测试：ring buffer 行数上限、cursor 边界。
+  - Android 手工：Logs 页面可看到启动/连接/管理操作日志。
+- 回滚点：revert 本任务提交。
 
-### ANDA6 - GitHub Actions：Release（tag）构建 release APK + 发布到 Releases
-- 目标：tag `v*.*.*` 触发，全自动发布。
+### ANDH5 - Android(Compose)：导航 + Login 页面
+
+- 目标：实现登录页（参照 Win），并把核心状态（连接目标/登录状态/NodeID/错误）可视化。
 - 涉及文件：
-  - `.github/workflows/release.yml`（新增）
-  - （可选）`docs/release.md` 或 README 补充（见 ANDA7）
-- 验收条件：
-  - 推送 tag 后自动创建 GitHub Release。
-  - Release Assets 包含：`app-release.apk`、`myflowhub.aar`、`build-info.txt`。
-  - Release APK 已签名、版本号与 tag 规则一致。
-- 回滚点：删除 workflow 文件。
+  - `app/src/main/java/com/myflowhub/android/MainActivity.kt`（导航入口）
+  - `app/src/main/java/com/myflowhub/android/ui/*`（新增：页面/组件）
+  - `app/src/main/java/com/myflowhub/android/Prefs.kt`（持久化）
+  - `app/src/main/java/com/myflowhub/android/HubBridge.kt`（调用 Go API）
+- 验收条件：注册/登录流程可用；能切换操作目标（本机/远端）。
+- 测试点：手工按流程验证（见 ANDH8）。
+- 回滚点：revert 本任务提交。
 
-### ANDA7 - 文档：补充发版与 Secrets 配置说明
-- 目标：让他人可按文档独立配置 Secrets 并发版。
-- 涉及文件（其一即可）：
-  - `README.md` 或 `docs/release.md`（新增/修改）
-- 必须写清：
-  - tag 格式与版本规则
-  - GitHub Secrets 列表与含义
-  - keystore 生成与 base64 写入方式（避免泄漏）
-- 回滚点：revert 文档提交。
+### ANDH6 - Android(Compose)：Devices 页面
 
-### ANDA8 - Code Review（强制）
-- 按全局 3.3 清单逐项输出结论（通过/不通过）。
-- 不通过：回到对应任务修正，再次 Review。
+- 目标：实现 Devices（树 + 详情 + 配置编辑），并将原“Management”更名。
+- 涉及文件：
+  - `app/src/main/java/com/myflowhub/android/ui/devices/*`
+  - （可能）资源/strings：`app/src/main/res/*`
+- 验收条件：对齐 Win Devices 的核心体验（树/详情/编辑）。
+- 测试点：手工验证（见 ANDH8）。
+- 回滚点：revert 本任务提交。
 
-### ANDA9 - 归档变更（强制）
-- 在本 worktree 根目录创建 `docs/change/` 并新增归档文档：
-  - `docs/change/YYYY-MM-DD_android-apk-release-ci.md`
-- 必须包含：任务映射、关键决策与权衡（尤其签名/版本/可复现性）、验证方式与结果、回滚方案。
+### ANDH7 - Android(Compose)：Logs 页面 + 子协议入口页（B）
 
-## 4. 依赖与注意事项
+- 目标：
+  - Logs 页面：分页读取 + 简单刷新；
+  - 协议入口：为 `auth/exec/file/flow/topicbus/varstore` 提供独立入口（可先复用通用控制台组件），满足“具备子协议能力”的验证诉求。
+- 涉及文件：
+  - `app/src/main/java/com/myflowhub/android/ui/logs/*`
+  - `app/src/main/java/com/myflowhub/android/ui/protocols/*`
+- 验收条件：能看到 10k ring buffer 日志；协议入口可触发至少一条 `Send&Await` 验证。
+- 回滚点：revert 本任务提交。
 
-### 4.1 GitHub Secrets（Release 必需）
-- `ANDROID_KEYSTORE_BASE64`：keystore 文件 base64
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
+### ANDH8 - 验证步骤（可执行）
 
-### 4.2 CI 构建依赖
-- JDK：17
-- Android SDK：compileSdk 34（platforms/build-tools）
-- Android NDK：gomobile 需要（版本在 workflow 中固定，并可调整）
-- Go：`hubmobile/go.mod` 依赖 toolchain（CI 允许自动下载对应 Go toolchain）
+- 本地构建：
+  - `powershell scripts/build_aar.ps1` 生成 `app/libs/myflowhub.aar`
+  - `./gradlew :app:assembleDebug`
+- 安装与冒烟：
+  - 安装 debug APK 到真机（arm64）；
+  - 启动 Hub Service；
+  - Login 页连接远端 hub（`ip:port`），执行 register/login；
+  - Devices 页：加载树/查看详情/修改一项配置；
+  - Logs 页：查看是否记录上述操作日志。
 
-### 4.3 风险与回滚
-- 可复现性：Release 默认使用 `myflowhub-server` 的 `main` 最新；通过 `build-info.txt` 记录 Server commit 以便审计与回放。
-- 回滚：revert workflow/Gradle 改动；GitHub Release 可手动删除（如误发版）。
+### ANDH9 - Code Review（强制）
 
+- 按全局 3.3 清单逐项审查并输出结论（通过/不通过）。
+
+### ANDH10 - 归档变更（强制）
+
+- 新增 `docs/change/YYYY-MM-DD_android-hub-ui-v1.md`，包含：背景/目标、变更内容、任务映射、关键设计决策（性能/扩展性）、测试与结果、影响与回滚方案。
+
+## 6. 风险与注意事项
+
+- gomobile 限制：部分 Go 包可能在移动端不可用；新增依赖需保持可 bind/可交叉编译。
+- 性能：Devices 树加载需避免频繁拉全量子树；日志 ring buffer 需控制内存。
+- 可扩展性：协议入口先走通用控制台，后续可替换为更友好的专用 UI，不影响底层 API。
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -37,6 +38,10 @@ func Start(addr, parentAddr, selfID, workDir string) (string, error) {
 	if rt != nil {
 		return marshalStatus(rt.Status()), nil
 	}
+	if err := Init(workDir); err != nil {
+		storeLastError(err)
+		return "", err
+	}
 	opts := hubruntime.DefaultOptionsFromEnv()
 	opts.Addr = addr
 	opts.ParentAddr = parentAddr
@@ -44,12 +49,15 @@ func Start(addr, parentAddr, selfID, workDir string) (string, error) {
 	opts.SelfID = selfID
 	opts.WorkDir = workDir
 	opts.NodeID = 0
+	opts.Logger = globalLogger
 
 	r, err := hubruntime.New(opts)
 	if err != nil {
+		storeLastError(err)
 		return "", err
 	}
 	if err := r.Start(context.Background()); err != nil {
+		storeLastError(err)
 		return "", err
 	}
 	rt = r
@@ -68,6 +76,7 @@ func Stop() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := r.Stop(ctx); err != nil {
+		storeLastError(err)
 		return "", err
 	}
 	return marshalStatus(r.Status()), nil
@@ -107,7 +116,24 @@ func EnsureLinked() error {
 	mu.Lock()
 	defer mu.Unlock()
 	if rt == nil {
-		return errors.New("runtime not started")
+		err := errors.New("runtime not started")
+		storeLastError(err)
+		return err
 	}
+	return nil
+}
+
+// EnsureInit is a convenience no-op to allow Android to set workDir early (even before starting hub runtime).
+func EnsureInit(workDir string) error {
+	if err := Init(workDir); err != nil {
+		storeLastError(err)
+		return err
+	}
+	pub, err := EnsureKeys()
+	if err != nil {
+		storeLastError(err)
+		return err
+	}
+	logInfo("init ok", "pubkey_prefix", fmt.Sprintf("%.12s", pub))
 	return nil
 }

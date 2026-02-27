@@ -6,4 +6,9 @@ local.properties
 **/build/
 *.apk
 *.aab
+*.aar
 .DS_Store
+
+# gomobile build artifacts
+app/libs/*.aar
+app/libs/myflowhub*.jar

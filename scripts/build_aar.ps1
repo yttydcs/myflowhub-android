@@ -19,10 +19,10 @@ Set-Location $repoRoot
 $env:GOWORK = 'off'
 
 if ($AndroidApi -le 0) {
-  throw "AndroidApi 非法：$AndroidApi（期望为正整数）"
+  throw "AndroidApi invalid: $AndroidApi (expected positive integer)"
 }
 if ($AndroidApi -lt 21) {
-  throw "AndroidApi 过低：$AndroidApi（NDK r26 仅支持 21..34，且本项目 minSdk=26）"
+  throw "AndroidApi too low: $AndroidApi (NDK r26 supports 21..34; minSdk=26)"
 }
 
 if (-not (Get-Command gomobile -ErrorAction SilentlyContinue)) {
