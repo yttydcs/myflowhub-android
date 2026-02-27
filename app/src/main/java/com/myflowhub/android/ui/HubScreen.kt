@@ -20,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,16 +29,27 @@ import androidx.core.content.ContextCompat
 import com.myflowhub.android.HubConfig
 import com.myflowhub.android.HubService
 import com.myflowhub.android.HubState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 @Composable
 fun HubScreen(
     modifier: Modifier = Modifier,
     cfg: HubConfig,
+    notify: (String) -> Unit,
     onCfgChange: (HubConfig) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var svc by remember { mutableStateOf<HubService?>(null) }
     var state by remember { mutableStateOf(HubState()) }
+    var opJob by remember { mutableStateOf<Job?>(null) }
+    var busy by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         val conn = object : ServiceConnection {
@@ -93,15 +105,120 @@ fun HubScreen(
         )
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = {
-                startHubService(context, cfg)
-                state = svc?.getState() ?: state
-            }) { Text("Start") }
+            Button(
+                enabled = !busy && svc != null,
+                onClick = {
+                    if (cfg.addr.isBlank()) {
+                        notify("Listen addr 不能为空，例如 :9000")
+                        return@Button
+                    }
+                    opJob?.cancel()
+                    val previousError = state.lastError
+                    busy = true
+                    notify("正在启动…")
+                    val job = scope.launch {
+                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
+                        try {
+                            try {
+                                startHubService(context, cfg)
+                            } catch (t: Throwable) {
+                                notify("启动失败：${t.message ?: t}")
+                                return@launch
+                            }
 
-            Button(onClick = {
-                stopHubService(context)
-                state = svc?.getState() ?: HubState(running = false)
-            }) { Text("Stop") }
+                            val result = runCatching {
+                                withTimeout(5_000) {
+                                    while (true) {
+                                        val polled = pollState(svc)
+                                        if (polled != null) {
+                                            state = polled
+                                            if (polled.running) {
+                                                return@withTimeout polled
+                                            }
+                                            if (!polled.running && polled.lastError.isNotBlank() && polled.lastError != previousError) {
+                                                throw IllegalStateException(polled.lastError)
+                                            }
+                                        }
+                                        delay(200)
+                                    }
+                                }
+                            }
+
+                            result.onSuccess {
+                                notify("启动成功")
+                            }.onFailure { t ->
+                                if (t is TimeoutCancellationException) {
+                                    notify("启动超时（5s），可稍后查看通知/日志")
+                                } else {
+                                    notify("启动失败：${t.message ?: t}")
+                                }
+                            }
+                        } finally {
+                            if (opJob === localJob) {
+                                busy = false
+                            }
+                        }
+                    }
+                    opJob = job
+                },
+            ) { Text("Start") }
+
+            Button(
+                enabled = !busy && svc != null,
+                onClick = {
+                    opJob?.cancel()
+                    val previousError = state.lastError
+                    busy = true
+                    notify("正在停止…")
+                    val job = scope.launch {
+                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
+                        try {
+                            try {
+                                stopHubService(context)
+                            } catch (t: Throwable) {
+                                notify("停止失败：${t.message ?: t}")
+                                return@launch
+                            }
+
+                            val result = runCatching {
+                                withTimeout(5_000) {
+                                    while (true) {
+                                        val polled = pollState(svc)
+                                        if (polled != null) {
+                                            state = polled
+                                            if (!polled.running) {
+                                                return@withTimeout polled
+                                            }
+                                            if (polled.lastError.isNotBlank() && polled.lastError != previousError) {
+                                                throw IllegalStateException(polled.lastError)
+                                            }
+                                        } else if (svc == null) {
+                                            state = HubState(running = false)
+                                            return@withTimeout HubState(running = false)
+                                        }
+                                        delay(200)
+                                    }
+                                }
+                            }
+
+                            result.onSuccess {
+                                notify("已停止")
+                            }.onFailure { t ->
+                                if (t is TimeoutCancellationException) {
+                                    notify("停止超时（5s），可稍后查看通知/日志")
+                                } else {
+                                    notify("停止失败：${t.message ?: t}")
+                                }
+                            }
+                        } finally {
+                            if (opJob === localJob) {
+                                busy = false
+                            }
+                        }
+                    }
+                    opJob = job
+                },
+            ) { Text("Stop") }
         }
 
         StatusBlock(state)
@@ -137,3 +254,9 @@ private fun stopHubService(context: Context) {
     context.startService(intent)
 }
 
+private suspend fun pollState(svc: HubService?): HubState? {
+    if (svc == null) return null
+    return withContext(Dispatchers.IO) {
+        runCatching { svc.getState() }.getOrNull()
+    }
+}
