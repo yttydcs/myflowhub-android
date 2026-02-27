@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -11,6 +12,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
@@ -21,7 +23,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +54,26 @@ private enum class AppTab(val label: String) {
     Devices("Devices"),
     Logs("Logs"),
     Protocols("Protocols"),
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppTopBar(
+    showMenu: Boolean,
+    onMenuClick: () -> Unit,
+) {
+    val containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+    TopAppBar(
+        title = { Text("MyFlowHub") },
+        navigationIcon = {
+            if (showMenu) {
+                IconButton(onClick = onMenuClick) {
+                    Icon(imageVector = Icons.Filled.Menu, contentDescription = "Menu")
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = containerColor),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -169,10 +193,12 @@ fun AppRoot() {
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWide = maxWidth >= 900.dp
+        val chromeContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+        val contentContainerColor = MaterialTheme.colorScheme.surface
 
         if (isWide) {
             Row(modifier = Modifier.fillMaxSize()) {
-                NavigationRail {
+                NavigationRail(containerColor = chromeContainerColor) {
                     AppTab.entries.forEach { entry ->
                         NavigationRailItem(
                             selected = tab == entry.name,
@@ -184,18 +210,19 @@ fun AppRoot() {
                 }
                 Scaffold(
                     topBar = {
-                        TopAppBar(title = { Text(current.label) })
+                        AppTopBar(showMenu = false, onMenuClick = {})
                     },
                     snackbarHost = { SnackbarHost(snackbarHostState) },
+                    containerColor = contentContainerColor,
                 ) { padding ->
-                    Content(contentModifier = Modifier.padding(padding))
+                    Content(contentModifier = Modifier.padding(padding).imePadding())
                 }
             }
         } else {
             ModalNavigationDrawer(
                 drawerState = drawerState,
                 drawerContent = {
-                    ModalDrawerSheet {
+                    ModalDrawerSheet(drawerContainerColor = chromeContainerColor) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text("MyFlowHub")
                         }
@@ -214,18 +241,15 @@ fun AppRoot() {
             ) {
                 Scaffold(
                     topBar = {
-                        TopAppBar(
-                            title = { Text(current.label) },
-                            navigationIcon = {
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    Icon(imageVector = Icons.Filled.Menu, contentDescription = "Menu")
-                                }
-                            },
+                        AppTopBar(
+                            showMenu = true,
+                            onMenuClick = { scope.launch { drawerState.open() } },
                         )
                     },
                     snackbarHost = { SnackbarHost(snackbarHostState) },
+                    containerColor = contentContainerColor,
                 ) { padding ->
-                    Content(contentModifier = Modifier.padding(padding))
+                    Content(contentModifier = Modifier.padding(padding).imePadding())
                 }
             }
         }
