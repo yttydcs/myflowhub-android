@@ -1,63 +1,133 @@
-# Plan - Android：手机作为 Hub（v1）——登录 + Devices + 日志 + 子协议能力基座
+# Plan - Android：修复 Android 15 前台服务崩溃 + gomobile 反射兼容（v0.1.3）
 
-> 说明：本 workflow 目标是让 Android 端具备“作为 Hub + 作为 Client 控制 Hub”的最小闭环能力，并为后续逐个跑通子协议 UI 打好基座。
-> - 自动发现：不做（仅手动填写 `ip:port`）
-> - broker：不纳入本版本
-> - 子协议：目标对齐现状（`auth/exec/file/flow/management/topicbus/varstore`），允许逐步跑通
+> 本 workflow 目标：让 `v0.1.2` 在 Android 15（targetSdk=34）上不再因前台服务类型缺失而崩溃，并修复 “Go AAR unavailable（EnsureInit 找不到）”。
 
 ## 0. Workflow 信息
 
-- Workflow 名称：`android-hub-ui-v1`
-- 分支（本仓）：`feat/android-login-devices`
+- Workflow 名称：`android-fgs-type-gomobile-reflect`
+- 分支（本仓）：`fix/android-fgs-type-gomobile-reflect`
 - Base：`main`
-- Worktree：`worktrees/feat-android-login-devices`
-- 涉及仓库：
-  - `MyFlowHub-Android`：Kotlin UI、前台服务、hubmobile（gomobile AAR）
-  - 依赖：`myflowhub-server` / `myflowhub-sdk` / `myflowhub-proto`（Go module 依赖；不在本 workflow 直接修改）
+- Worktree：`worktrees/fix-android-fgs-type-gomobile-reflect`
+- 目标 tag：`v0.1.3`
 
-## 1. 背景与澄清
+## 1. 背景（问题复现与根因）
 
-- “为什么看起来没有引用 server？”
-  - `hubmobile` 的 Go 代码通过 `github.com/yttydcs/myflowhub-server/hubruntime` 引入了 Server 侧的 Hub 与默认子协议实现；但当前只向 Android 暴露了极少数 API（`Start/Stop/Status/EnsureLinked`），所以 UI 侧还无法使用完整能力。
-  - 本 workflow 的工作重点不是重写 server，而是：
-    1) 把“客户端会话/签名/Send&Await/日志/错误”能力下沉到 Go（AAR）；
-    2) Kotlin Compose 做页面与交互，参照 Win 的 `Home/Devices`。
+### 1.1 Hub Start 闪退（已定位）
 
-## 2. 目标（验收口径）
+- 复现：Android 15 真机，点击 `Hub -> Start`。
+- 现象：App 进程崩溃退出。
+- logcat（关键）：`android.app.MissingForegroundServiceTypeException: Starting FGS without a type targetSDK=34`
+- 根因：`HubService.startForeground(...)` 使用了 2 参数版本，未指定 foreground service type，且 service 未声明 `android:foregroundServiceType`。
 
-### 2.1 必须达成（v1）
+### 1.2 Login 提示 Go AAR unavailable（已定位）
 
-1) Hub（本机）：
-   - 手机可启动/停止前台 Hub 服务；LAN 可见（沿用现状）。
-   - 支持手动填写 `parent ip:port` 建立父子链路（复用/补齐 `EnsureLinked` 相关能力与错误提示）。
-2) Client（操作 Hub）：
-   - 支持操作 “本机 Hub” 与 “远端 Hub” 两种目标（手动填写 `ip:port`；不做自动发现）。
-   - 统一设备身份：同一套 Node Key 用于（本机 Hub）与（Client 登录/签名）。（已确认）
-3) 登录页（参照 Win）：
-   - 提供：连接、注册、登录；展示本机 `NodeID`、当前连接目标、最近一次错误信息。
-4) Devices 页面（原 Management 改名为 Devices，参照 Win Devices）：
-   - 显示树（直接子节点）；
-   - 显示子树（按需展开/加载）；
-   - 选中节点后展示详细信息；
-   - 支持查看/编辑节点配置（`config list/get/set`）。
-5) 日志：
-   - 展示运行日志 + 关键操作日志；
-   - Go 侧维护日志 ring buffer，保留 10k 行；Android 可分页读取（cursor/limit）。
-6) 子协议能力基座：
-   - Go 侧提供通用 `Send&Await`（`subproto+action+payloadJSON`）能力；
-   - UI 侧按 “协议独立入口（B）” 提供入口页（可先复用通用控制台组件），允许协议逐步跑通。
+- 现象：Login 页提示 `Go AAR unavailable：com.myflowhub.gomobile.hubmobile.Hubmobile.EnsureInit[class java.lang.String]`。
+- 根因：Kotlin 侧使用反射 `getMethod("EnsureInit", String::class.java)`，但 gomobile 生成的 Java 方法名可能为 `ensureInit`（或其他大小写规则），导致 `NoSuchMethodException`。
 
-### 2.2 不做（明确排除）
+## 2. 目标与非目标
 
-- 自动发现（mDNS/广播）。
-- broker 子协议及其 UI。
-- 日志导出（仅保留查看与 10k ring buffer）。
-- 额外安全加固/密钥轮换（后续另开 workflow）。
+### 2.1 必须达成（验收口径）
 
-## 3. 当前状态
+1) Android 15 上点击 `Hub -> Start` 不崩溃：
+   - Service 能成功 `startForeground`；若后续 Go Hub 启动失败，UI 能看到 `lastError`，但进程不应崩。
+2) `GoClientBridge` / `GoHubBridge` 不再因方法名大小写差异导致初始化失败：
+   - Login 页不再出现 `Go AAR unavailable`（除非 AAR/so 真缺失）。
+3) 发布 `v0.1.3`：推送 tag 后 GitHub Actions 自动产出签名 APK。
 
-- Android 端已具备：前台 Hub Service + 最小启动/停止/状态页面。
-- `hubmobile` 目前仅暴露：`Start/Stop/Status/EnsureLinked` 等少量能力；缺少登录、管理协议封装、日志拉取等接口。
+### 2.2 不做
+
+- 不新增功能（协议 UI、自动发现、broker 等不在本 workflow 范围）。
+- 不做安全加固/权限策略调整（仅满足 Android 平台运行要求）。
+
+## 3. 总体方案（选型理由 / 备选对比）
+
+### 3.1 Foreground Service Type 方案
+
+- 采用：`dataSync`（用户已确认）。
+- Manifest：
+  - 为 `HubService` 声明 `android:foregroundServiceType="dataSync"`。
+  - 增加权限 `android.permission.FOREGROUND_SERVICE_DATA_SYNC`（Android 14+ 要求）。
+- 代码：使用 `ServiceCompat.startForeground(..., ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)`，保证在 API>=29 传入 type，低版本安全回退。
+
+备选（不采用）：
+- `specialUse`：需要额外配置与更强约束，不适合当前“网络转发/同步”语义。
+- 继续 2 参数 `startForeground`：Android 15 + targetSdk 34 会直接抛异常，无法接受。
+
+### 3.2 gomobile 反射兼容方案
+
+- 采用：在 Kotlin 封装一个 `GoReflect`：同一方法名同时尝试 `UpperCamel` 与 `lowerCamel`（仅首字母大小写变体）。
+- 覆盖：`EnsureInit/Start/Stop/Status/...` 以及所有 `GoClientBridge` 需要的方法。
+- 错误展示：将 `InvocationTargetException` 的 root-cause 提取并显示（避免只看到外层异常）。
+
+## 4. 任务拆分（Checklist）
+
+> 进入 3.2（写代码）后，每次提交必须标注对应 Task ID。
+
+### ANDFIX-1：补齐前台服务类型声明
+
+- 目标：消除 `MissingForegroundServiceTypeException`。
+- 变更范围：
+  - `app/src/main/AndroidManifest.xml`
+- 验收：Android 15 点击 Start 不再触发该异常。
+- 测试点：`adb logcat` 无该异常；通知常驻显示。
+- 回滚点：回退 manifest 变更（不建议；会复现崩溃）。
+
+### ANDFIX-2：HubService 使用带 type 的 startForeground
+
+- 目标：在 API>=29 明确传入 `FOREGROUND_SERVICE_TYPE_DATA_SYNC`；兼容 minSdk=26。
+- 变更范围：
+  - `app/src/main/java/com/myflowhub/android/HubService.kt`
+- 验收：Android 15 启动 service 成功，App 不崩；通知常驻。
+- 测试点：点击 Start/Stop 多次；后台驻留 30s 以上不退出。
+- 回滚点：回退到旧实现（会复现崩溃）。
+
+### ANDFIX-3：gomobile 反射方法名兼容 + 更清晰错误
+
+- 目标：解决 `EnsureInit` 等方法找不到导致的 `Go AAR unavailable`。
+- 变更范围：
+  - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
+  - `app/src/main/java/com/myflowhub/android/HubBridge.kt`（`GoHubBridge`）
+  - （可选新增）`app/src/main/java/com/myflowhub/android/GoReflect.kt`
+- 验收：Login 页不再出现 `Go AAR unavailable`；可正常执行 `EnsureKeys/Connect` 等。
+- 测试点：冷启动 App；切到 Login 页观察；执行 `EnsureKeys`。
+- 回滚点：回退到旧反射实现（会复现 NoSuchMethod）。
+
+### ANDFIX-4：本地构建与冒烟验证（开发机）
+
+- 目标：保证能构建出可安装 APK，并在真机复现通过。
+- 变更范围：无（仅命令执行）。
+- 验收：
+  - `./gradlew :app:assembleDebug`
+  - 真机 Android 15：Start 不崩；Login 无 Go AAR unavailable。
+- 测试点：见 ANDFIX-2/3。
+- 回滚点：无需（验证失败则回到 ANDFIX-1~3 修正）。
+
+### ANDFIX-5：Code Review（按清单输出通过/不通过）
+
+- 目标：确保修复不引入回归，且符合架构/性能/可维护性要求。
+
+### ANDFIX-6：归档变更（docs/change）
+
+- 目标：生成可审计归档文档。
+- 变更范围：`docs/change/YYYY-MM-DD_android-fgs-type-gomobile-reflect.md`
+- 验收：文档包含背景/变更/任务映射/验证/回滚。
+
+### ANDFIX-7：发布 v0.1.3（tag 触发 release action）
+
+- 目标：GitHub Release 产出 signed APK。
+- 验收：Release 资产中包含 `app-release.apk`、`myflowhub.aar`、`build-info.txt`。
+
+## 5. 依赖关系
+
+- ANDFIX-1/2 必须先完成（否则 Android 15 仍会崩）。
+- ANDFIX-3 可并行，但建议与 ANDFIX-1/2 一起完成后做真机冒烟。
+- ANDFIX-6 在 Code Review 通过后进行。
+- ANDFIX-7 在合并 main 并 push 后进行。
+
+## 6. 风险与注意事项
+
+- FGS type 选择需与实际行为匹配：本次选择 `dataSync`，后续若扩展为媒体播放/定位等需调整。
+- gomobile 生成规则可能随版本变化：本次只做“首字母大小写”兼容，若未来规则更复杂需再扩展。
 
 ## 4. 开发环境注意事项（Worktree）
 

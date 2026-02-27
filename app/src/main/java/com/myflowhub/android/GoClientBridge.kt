@@ -3,29 +3,30 @@ package com.myflowhub.android
 class GoClientBridge {
     private val cls: Class<*> = GomobileLoader.loadHubClass()
 
-    private val ensureInitMethod = cls.getMethod("EnsureInit", String::class.java)
-    private val connectMethod = cls.getMethod("Connect", String::class.java)
-    private val closeMethod = cls.getMethod("Close")
-    private val isConnectedMethod = cls.getMethod("IsConnected")
-    private val lastAddrMethod = cls.getMethod("LastAddr")
-    private val authStateMethod = cls.getMethod("AuthState")
-    private val clearAuthMethod = cls.getMethod("ClearAuth")
-    private val ensureKeysMethod = cls.getMethod("EnsureKeys")
-    private val registerMethod = cls.getMethod("Register", String::class.java)
-    private val loginMethod = cls.getMethod("Login", String::class.java, String::class.java)
-    private val getSelfNodeIdMethod = cls.getMethod("GetSelfNodeID")
-    private val getLastErrorMethod = cls.getMethod("GetLastError")
+    private val ensureInitMethod = GoReflect.method(cls, "EnsureInit", String::class.java)
+    private val connectMethod = GoReflect.method(cls, "Connect", String::class.java)
+    private val closeMethod = GoReflect.method(cls, "Close")
+    private val isConnectedMethod = GoReflect.method(cls, "IsConnected")
+    private val lastAddrMethod = GoReflect.method(cls, "LastAddr")
+    private val authStateMethod = GoReflect.method(cls, "AuthState")
+    private val clearAuthMethod = GoReflect.method(cls, "ClearAuth")
+    private val ensureKeysMethod = GoReflect.method(cls, "EnsureKeys")
+    private val registerMethod = GoReflect.method(cls, "Register", String::class.java)
+    private val loginMethod = GoReflect.method(cls, "Login", String::class.java, String::class.java)
+    private val getSelfNodeIdMethod = GoReflect.method(cls, "GetSelfNodeID")
+    private val getLastErrorMethod = GoReflect.method(cls, "GetLastError")
 
-    private val listNodesMethod = cls.getMethod("ListNodes", String::class.java, String::class.java)
-    private val listSubtreeMethod = cls.getMethod("ListSubtree", String::class.java, String::class.java)
-    private val nodeInfoMethod = cls.getMethod("NodeInfo", String::class.java, String::class.java)
-    private val configListMethod = cls.getMethod("ConfigList", String::class.java, String::class.java)
-    private val configGetMethod = cls.getMethod("ConfigGet", String::class.java, String::class.java, String::class.java)
-    private val configSetMethod = cls.getMethod("ConfigSet", String::class.java, String::class.java, String::class.java, String::class.java)
+    private val listNodesMethod = GoReflect.method(cls, "ListNodes", String::class.java, String::class.java)
+    private val listSubtreeMethod = GoReflect.method(cls, "ListSubtree", String::class.java, String::class.java)
+    private val nodeInfoMethod = GoReflect.method(cls, "NodeInfo", String::class.java, String::class.java)
+    private val configListMethod = GoReflect.method(cls, "ConfigList", String::class.java, String::class.java)
+    private val configGetMethod = GoReflect.method(cls, "ConfigGet", String::class.java, String::class.java, String::class.java)
+    private val configSetMethod = GoReflect.method(cls, "ConfigSet", String::class.java, String::class.java, String::class.java, String::class.java)
 
-    private val logsPullMethod = cls.getMethod("LogsPull", String::class.java, String::class.java)
+    private val logsPullMethod = GoReflect.method(cls, "LogsPull", String::class.java, String::class.java)
 
-    private val sendAndAwaitMethod = cls.getMethod(
+    private val sendAndAwaitMethod = GoReflect.method(
+        cls,
         "SendAndAwait",
         String::class.java,
         String::class.java,

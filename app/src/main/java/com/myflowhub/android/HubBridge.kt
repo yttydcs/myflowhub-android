@@ -35,11 +35,11 @@ class GoHubBridge : HubBridge {
 
     init {
         cls = GomobileLoader.loadHubClass()
-        startMethod = cls.getMethod("Start", String::class.java, String::class.java, String::class.java, String::class.java)
-        stopMethod = cls.getMethod("Stop")
-        statusMethod = cls.getMethod("Status")
+        startMethod = GoReflect.method(cls, "Start", String::class.java, String::class.java, String::class.java, String::class.java)
+        stopMethod = GoReflect.method(cls, "Stop")
+        statusMethod = GoReflect.method(cls, "Status")
         // Optional probe to help diagnose missing AAR in runtime.
-        runCatching { cls.getMethod("EnsureLinked").invoke(null) }
+        runCatching { GoReflect.method(cls, "EnsureLinked").invoke(null) }
     }
 
     override fun start(config: HubConfig): HubState =

@@ -6,10 +6,12 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import java.io.File
 
 class HubService : Service() {
@@ -65,7 +67,12 @@ class HubService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setOngoing(true)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
     }
 
     private fun createChannelIfNeeded() {
