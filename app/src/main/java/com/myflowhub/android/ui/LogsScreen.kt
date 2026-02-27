@@ -73,7 +73,6 @@ fun LogsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Logs")
         if (go == null) {
             Text("Go AAR unavailable: ${goError.ifBlank { "unknown error" }}")
         }
