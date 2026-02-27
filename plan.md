@@ -1,63 +1,137 @@
-# Plan - Android：修复 Android 15 前台服务崩溃 + gomobile 反射兼容（v0.1.3）
+# Plan - Android：Snackbar 及时替换 + Hub/Login/Devices 视觉与交互优化（v0.1.5）
 
-> 本 workflow 目标：让 `v0.1.2` 在 Android 15（targetSdk=34）上不再因前台服务类型缺失而崩溃，并修复 “Go AAR unavailable（EnsureInit 找不到）”。
+> 本 workflow 目标：解决 Snackbar 提示“排队导致延迟/无法被新提示打断”的问题，并对 `Hub / Login / Devices` 三个页面做更现代、更清晰的 UI 设计与交互细化（含加载态、状态展示、信息层级）。
 
 ## 0. Workflow 信息
 
-- Workflow 名称：`android-fgs-type-gomobile-reflect`
-- 分支（本仓）：`fix/android-fgs-type-gomobile-reflect`
+- Workflow 名称：`android-ui-polish-snackbar`
+- 分支（本仓）：`feat/android-ui-polish-snackbar`
 - Base：`main`
-- Worktree：`worktrees/fix-android-fgs-type-gomobile-reflect`
-- 目标 tag：`v0.1.3`
+- Worktree：`worktrees/feat-android-ui-polish-snackbar`
+- 目标版本：`v0.1.5`（待用户确认发布节奏；本计划先完成功能与体验）
 
-## 1. 背景（问题复现与根因）
+## 1. 背景与问题
 
-### 1.1 Hub Start 闪退（已定位）
+### 1.1 Snackbar 提示延迟/无法打断
 
-- 复现：Android 15 真机，点击 `Hub -> Start`。
-- 现象：App 进程崩溃退出。
-- logcat（关键）：`android.app.MissingForegroundServiceTypeException: Starting FGS without a type targetSDK=34`
-- 根因：`HubService.startForeground(...)` 使用了 2 参数版本，未指定 foreground service type，且 service 未声明 `android:foregroundServiceType`。
+- 现象：例如 `Register / Login`，点击后提示与结果提示存在明显延迟，且看起来不会被新的提示中断。
+- 初步根因：`SnackbarHostState.showSnackbar()` 会挂起直到当前 Snackbar 消失；连续调用会“排队等待”，导致结果提示晚于预期出现。
 
-### 1.2 Login 提示 Go AAR unavailable（已定位）
+### 1.2 Hub/Login/Devices 页面观感与信息层级偏弱
 
-- 现象：Login 页提示 `Go AAR unavailable：com.myflowhub.gomobile.hubmobile.Hubmobile.EnsureInit[class java.lang.String]`。
-- 根因：Kotlin 侧使用反射 `getMethod("EnsureInit", String::class.java)`，但 gomobile 生成的 Java 方法名可能为 `ensureInit`（或其他大小写规则），导致 `NoSuchMethodException`。
+- 现状：字段与按钮堆叠，缺少分组、状态可视化（badge/chip）、加载态与错误态的视觉区分；信息密度与可读性不佳。
 
-## 2. 目标与非目标
+## 2. 目标与范围
 
 ### 2.1 必须达成（验收口径）
 
-1) Android 15 上点击 `Hub -> Start` 不崩溃：
-   - Service 能成功 `startForeground`；若后续 Go Hub 启动失败，UI 能看到 `lastError`，但进程不应崩。
-2) `GoClientBridge` / `GoHubBridge` 不再因方法名大小写差异导致初始化失败：
-   - Login 页不再出现 `Go AAR unavailable`（除非 AAR/so 真缺失）。
-3) 发布 `v0.1.3`：推送 tag 后 GitHub Actions 自动产出签名 APK。
+1) Snackbar 行为改为“最新优先”：
+   - 新提示到来时，**立即替换**当前 Snackbar（不排队等待）。
+   - 对“进行中”提示支持常驻（Indefinite），在结束时由结果提示替换。
+2) Hub 页面：
+   - `Start/Stop` 期间有明确加载态（按钮禁用 + 进度提示/指示器）。
+   - 5s 状态轮询逻辑保留，但呈现更清晰（Running/NodeID/Parent/LastError 分组展示）。
+3) Login 页面：
+   - `Connect/Disconnect/Register/Login/EnsureKeys/ClearAuth` 交互更清晰：输入校验、加载态、成功/失败提示层级明确。
+4) Devices 页面：
+   - 结构更清晰（树/详情/配置分区），并对 loading/error 提供更明显的视觉反馈。
 
-### 2.2 不做
+### 2.2 可选（若不引入额外不确定性）
 
-- 不新增功能（协议 UI、自动发现、broker 等不在本 workflow 范围）。
-- 不做安全加固/权限策略调整（仅满足 Android 平台运行要求）。
+- 在宽屏/横屏下采用“双栏”布局（左树右详情）提升类似 Windows 的体验。
+- 抽屉菜单项补充图标与副标题（提升可扫读性）。
 
-## 3. 总体方案（选型理由 / 备选对比）
+### 2.3 不做
 
-### 3.1 Foreground Service Type 方案
+- 不更改业务协议与 Go 侧接口。
+- 不新增复杂主题系统（仅使用 Material3 组件与现有 MaterialTheme）。
 
-- 采用：`dataSync`（用户已确认）。
-- Manifest：
-  - 为 `HubService` 声明 `android:foregroundServiceType="dataSync"`。
-  - 增加权限 `android.permission.FOREGROUND_SERVICE_DATA_SYNC`（Android 14+ 要求）。
-- 代码：使用 `ServiceCompat.startForeground(..., ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)`，保证在 API>=29 传入 type，低版本安全回退。
+## 3. 方案设计（执行策略）
 
-备选（不采用）：
-- `specialUse`：需要额外配置与更强约束，不适合当前“网络转发/同步”语义。
-- 继续 2 参数 `startForeground`：Android 15 + targetSdk 34 会直接抛异常，无法接受。
+### 3.1 Snackbar 统一管理：Replace 而非 Queue
 
-### 3.2 gomobile 反射兼容方案
+- 在 `AppRoot` 提供统一的 `UiNotifier`：
+  - `show(message, kind)`：对任意新消息先 `dismiss()` 当前 Snackbar，再显示新消息；
+  - `kind=Progress` 使用 `SnackbarDuration.Indefinite`；
+  - `kind=Result` 使用 `SnackbarDuration.Short`。
+- 页面侧仅调用 `ui.progress(...) / ui.success(...) / ui.error(...)`，避免散落的 showSnackbar。
 
-- 采用：在 Kotlin 封装一个 `GoReflect`：同一方法名同时尝试 `UpperCamel` 与 `lowerCamel`（仅首字母大小写变体）。
-- 覆盖：`EnsureInit/Start/Stop/Status/...` 以及所有 `GoClientBridge` 需要的方法。
-- 错误展示：将 `InvocationTargetException` 的 root-cause 提取并显示（避免只看到外层异常）。
+### 3.2 页面 UI 统一风格（Hub/Login/Devices）
+
+- 采用 Material3 的 `Card` 分区 + 小标题 + 辅助说明文本；
+- 状态用 `AssistChip`/`FilterChip`（例如 Connected/Running）；
+- 操作区：主操作用 `FilledButton`，次操作用 `OutlinedButton`/`FilledTonalButton`；
+- 加载态：`LinearProgressIndicator` 或 `CircularProgressIndicator`（尽量不遮挡输入）。
+
+## 4. 任务清单（Checklist）
+
+### ANDUI2-1：实现可替换 Snackbar 的 UiNotifier
+
+- **目标**：新提示立即替换旧提示；支持 progress 常驻与结果替换。
+- **涉及文件**
+  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
+  - 新增：`app/src/main/java/com/myflowhub/android/ui/UiNotifier.kt`
+- **验收条件**
+  - `progress("正在登录…")` 后，`success("登录成功")` 立即替换显示，不等待前一个消失。
+- **测试点**
+  - 手动：快速连续触发多条提示（Connect → Disconnect → Connect），提示不排队。
+- **回滚点**
+  - 回滚 `UiNotifier` 引入与 `AppRoot` 注入即可。
+
+### ANDUI2-2：Hub UI 视觉与交互优化
+
+- **目标**：字段/按钮/状态分区；更明显的 loading/error；Snackbar 文案更清晰。
+- **涉及文件**
+  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
+- **验收条件**
+  - Start/Stop 有进度指示；状态信息清晰分组；错误展示醒目且不刷屏。
+- **测试点**
+  - 手动：Start 成功/失败/超时三种路径均有明确提示。
+- **回滚点**
+  - 回滚 `HubScreen` UI 结构调整。
+
+### ANDUI2-3：Login UI 视觉与交互优化 + 结果提示无延迟
+
+- **目标**：连接区/身份区/操作区/结果区分组；progress→result Snackbar 及时替换；避免“结果提示晚出现”。
+- **涉及文件**
+  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
+- **验收条件**
+  - Register/Login 的“进行中”提示在操作期间常驻，结束后立刻被结果提示替换。
+- **测试点**
+  - 手动：参数为空/未 Connect/未填 NodeID 等边界场景提示清晰。
+- **回滚点**
+  - 回滚 `LoginScreen` 的 UI 与调用包装层。
+
+### ANDUI2-4：Devices UI 视觉与结构优化
+
+- **目标**：树/详情/配置分区清晰；loading/error 更明显；可选宽屏双栏布局。
+- **涉及文件**
+  - `app/src/main/java/com/myflowhub/android/ui/DevicesScreen.kt`
+- **验收条件**
+  - 树节点加载/错误有明显反馈；选中节点信息更易读；配置操作结果明确。
+- **测试点**
+  - 手动：Load/展开子节点/查看 NodeInfo/Config get-set 流程顺畅。
+- **回滚点**
+  - 回滚 `DevicesScreen` UI 改动。
+
+### ANDUI2-5：验证与回归
+
+- **构建**
+  - `./gradlew.bat :app:assembleDebug`
+- **手测**
+  - Snackbar：progress 与结果替换无延迟；
+  - Hub/Login/Devices：布局更清晰、交互更顺滑、错误更易定位。
+
+### ANDUI2-6：Code Review + 归档
+
+- **Code Review**：按清单逐项给出“通过/不通过”结论。
+- **归档**
+  - `docs/change/2026-02-27_android-ui-polish-snackbar.md`
+
+## 5. 风险与注意事项
+
+- Go 调用本质是阻塞式：协程取消不一定能中断底层执行；避免并发调用导致状态错乱，保持串行执行与清晰 loading。
+- Snackbar 的“替换策略”可能导致用户看不到历史提示；但符合“结果必须第一时间可见”的需求。
 
 ## 4. 任务拆分（Checklist）
 
