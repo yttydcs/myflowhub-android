@@ -3,10 +3,16 @@ package com.myflowhub.android.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,9 +23,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.myflowhub.android.GoClientBridge
 import com.myflowhub.android.Prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -33,7 +41,7 @@ fun LoginScreen(
     goError: String,
     workDir: String,
     cfg: Prefs.ClientConfig,
-    notify: (String) -> Unit,
+    ui: UiNotifier,
     onCfgChange: (Prefs.ClientConfig) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -43,8 +51,10 @@ fun LoginScreen(
     var lastMessage by remember { mutableStateOf("") }
     var opJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var busyLabel by remember { mutableStateOf("") }
+    var opSeq by remember { mutableStateOf(0) }
 
-    suspend fun refreshConn() {
+    suspend fun refreshConn(token: Int? = null) {
         val g = go
         if (g == null) {
             connected = false
@@ -59,9 +69,35 @@ fun LoginScreen(
                 runCatching { g.lastError() }.getOrDefault(""),
             )
         }
+        if (token != null && opSeq != token) return
         connected = snapshot.first
         lastAddr = snapshot.second
         lastError = snapshot.third
+    }
+
+    fun beginOp(label: String): Int {
+        opJob?.cancel()
+        val token = opSeq + 1
+        opSeq = token
+        busy = true
+        busyLabel = label
+        ui.progress(label)
+        return token
+    }
+
+    fun endOp(token: Int) {
+        if (opSeq != token) return
+        busy = false
+        busyLabel = ""
+    }
+
+    fun cancelOp() {
+        opSeq += 1
+        opJob?.cancel()
+        opJob = null
+        busy = false
+        busyLabel = ""
+        ui.info("已取消")
     }
 
     LaunchedEffect(go) {
@@ -74,332 +110,383 @@ fun LoginScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Login")
-        Text("WorkDir: $workDir")
-        if (go == null) {
-            Text("Go AAR unavailable: ${goError.ifBlank { "unknown error" }}")
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            if (busyLabel.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(text = busyLabel, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = { cancelOp() }) { Text("Cancel") }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
         }
 
-        OutlinedTextField(
-            value = cfg.targetAddr,
-            onValueChange = { onCfgChange(cfg.copy(targetAddr = it)) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Target addr (ip:port)") },
-            singleLine = true,
-        )
+        if (go == null) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Go AAR 不可用", fontWeight = FontWeight.SemiBold)
+                    Text(goError.ifBlank { "unknown error" })
+                }
+            }
+        }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("连接", fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(
+                    value = cfg.targetAddr,
+                    onValueChange = { onCfgChange(cfg.copy(targetAddr = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Target addr (ip:port)") },
+                    placeholder = { Text("127.0.0.1:9000") },
+                    singleLine = true,
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null && !busy,
+                        onClick = {
                     val g = go ?: run {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
+                        ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                        return@FilledTonalButton
                     }
                     if (cfg.targetAddr.isBlank()) {
-                        notify("Target addr 不能为空，例如 192.168.1.10:9000 或 127.0.0.1:9000")
-                        return@Button
+                        ui.info("Target addr 不能为空，例如 192.168.1.10:9000 或 127.0.0.1:9000")
+                        return@FilledTonalButton
                     }
-                    opJob?.cancel()
-                    busy = true
-                    notify("正在连接：${cfg.targetAddr}")
+                    val token = beginOp("正在连接：${cfg.targetAddr}")
                     val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
                         try {
                             val result = withContext(Dispatchers.IO) {
                                 runCatching { g.connect(cfg.targetAddr) }
                             }
+                            if (opSeq != token) return@launch
                             result.onFailure { t ->
                                 lastMessage = t.message ?: t.toString()
-                                notify("连接失败：${lastMessage}")
+                                ui.error("连接失败：${lastMessage}")
                             }.onSuccess {
                                 lastMessage = "Connected."
-                                notify("连接成功：${cfg.targetAddr}")
+                                ui.success("连接成功：${cfg.targetAddr}")
                             }
-                            refreshConn()
+                            refreshConn(token)
+                        } catch (_: CancellationException) {
+                            // ignore
                         } finally {
-                            if (opJob === localJob) busy = false
+                            endOp(token)
                         }
                     }
                     opJob = job
                 },
-            ) { Text("Connect") }
+                    ) { Text("Connect") }
 
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null && !busy,
+                        onClick = {
                     val g = go ?: run {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
+                        ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                        return@OutlinedButton
                     }
-                    opJob?.cancel()
-                    busy = true
-                    notify("正在断开连接…")
+                    val token = beginOp("正在断开连接…")
                     val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
                         try {
                             val result = withContext(Dispatchers.IO) {
                                 runCatching { g.close() }
                             }
+                            if (opSeq != token) return@launch
                             result.onFailure { t ->
                                 lastMessage = t.message ?: t.toString()
-                                notify("断开失败：${lastMessage}")
+                                ui.error("断开失败：${lastMessage}")
                             }.onSuccess {
                                 lastMessage = "Disconnected."
-                                notify("已断开")
+                                ui.success("已断开")
                             }
-                            refreshConn()
+                            refreshConn(token)
+                        } catch (_: CancellationException) {
+                            // ignore
                         } finally {
-                            if (opJob === localJob) busy = false
+                            endOp(token)
                         }
                     }
                     opJob = job
                 },
-            ) { Text("Disconnect") }
+                    ) { Text("Disconnect") }
+                }
 
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
+                OutlinedButton(
+                    enabled = go != null && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
                     if (go == null) {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
+                        ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                        return@OutlinedButton
                     }
-                    opJob?.cancel()
-                    busy = true
+                    val token = beginOp("正在刷新…")
                     val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
                         try {
-                            refreshConn()
-                            notify("已刷新")
+                            refreshConn(token)
+                            if (opSeq != token) return@launch
+                            ui.success("已刷新")
+                        } catch (_: CancellationException) {
+                            // ignore
                         } finally {
-                            if (opJob === localJob) busy = false
+                            endOp(token)
                         }
                     }
                     opJob = job
                 },
-            ) { Text("Refresh") }
-        }
+                ) { Text("Refresh") }
 
-        Text("Connected: $connected")
-        if (lastAddr.isNotBlank()) {
-            Text("LastAddr: $lastAddr")
-        }
-        if (lastError.isNotBlank()) {
-            Text("LastError: $lastError")
-        }
-
-        OutlinedTextField(
-            value = cfg.deviceId,
-            onValueChange = { onCfgChange(cfg.copy(deviceId = it)) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Device ID") },
-            singleLine = true,
-        )
-
-        OutlinedTextField(
-            value = cfg.nodeId,
-            onValueChange = { onCfgChange(cfg.copy(nodeId = it)) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Node ID (for login)") },
-            singleLine = true,
-        )
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
-                    val g = go ?: run {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(onClick = {}, label = { Text(if (connected) "Connected" else "Disconnected") })
+                    if (lastAddr.isNotBlank()) {
+                        AssistChip(onClick = {}, label = { Text(lastAddr) })
                     }
-                    opJob?.cancel()
-                    busy = true
-                    notify("正在确保密钥…")
-                    val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
-                        try {
-                            val result = withContext(Dispatchers.IO) { runCatching { g.ensureKeys() } }
-                            result.onFailure { t ->
-                                lastMessage = t.message ?: t.toString()
-                                notify("EnsureKeys 失败：${lastMessage}")
-                            }.onSuccess {
-                                lastMessage = "Keys ensured."
-                                notify("密钥已确保")
+                }
+                if (lastError.isNotBlank()) {
+                    Text("LastError: $lastError")
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("身份与认证", fontWeight = FontWeight.SemiBold)
+
+                OutlinedTextField(
+                    value = cfg.deviceId,
+                    onValueChange = { onCfgChange(cfg.copy(deviceId = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Device ID") },
+                    singleLine = true,
+                )
+
+                OutlinedTextField(
+                    value = cfg.nodeId,
+                    onValueChange = { onCfgChange(cfg.copy(nodeId = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Node ID (for login)") },
+                    singleLine = true,
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null && !busy,
+                        onClick = {
+                            val g = go ?: run {
+                                ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                                return@FilledTonalButton
                             }
-                        } finally {
-                            if (opJob === localJob) busy = false
-                        }
-                    }
-                    opJob = job
-                },
-            ) { Text("EnsureKeys") }
-
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
-                    val g = go ?: run {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
-                    }
-                    if (!connected) {
-                        notify("请先 Connect")
-                        return@Button
-                    }
-                    if (cfg.deviceId.isBlank()) {
-                        notify("Device ID 不能为空")
-                        return@Button
-                    }
-                    opJob?.cancel()
-                    busy = true
-                    notify("正在注册…")
-                    val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
-                        try {
-                            val respResult = withContext(Dispatchers.IO) { runCatching { g.register(cfg.deviceId) } }
-                            val resp = respResult.onFailure { t ->
-                                lastMessage = t.message ?: t.toString()
-                                notify("注册失败：${lastMessage}")
-                            }.getOrDefault("")
-
-                            if (resp.isBlank()) {
-                                return@launch
+                            val token = beginOp("正在确保密钥…")
+                            val job = scope.launch {
+                                try {
+                                    val result = withContext(Dispatchers.IO) { runCatching { g.ensureKeys() } }
+                                    if (opSeq != token) return@launch
+                                    result.onFailure { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("EnsureKeys 失败：${lastMessage}")
+                                    }.onSuccess {
+                                        lastMessage = "Keys ensured."
+                                        ui.success("密钥已确保")
+                                    }
+                                } catch (_: CancellationException) {
+                                    // ignore
+                                } finally {
+                                    endOp(token)
+                                }
                             }
+                            opJob = job
+                        },
+                    ) { Text("EnsureKeys") }
 
-                            val parsed = runCatching {
-                                val obj = JSONObject(resp)
-                                val nodeId = obj.optLong("node_id", 0)
-                                val hubId = obj.optLong("hub_id", 0)
-                                val role = obj.optString("role", "")
-                                val msg = obj.optString("msg", "")
-                                Triple(nodeId, hubId, Pair(role, msg))
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null && !busy,
+                        onClick = {
+                            val g = go ?: run {
+                                ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                                return@FilledTonalButton
                             }
-
-                            parsed.onFailure { t ->
-                                lastMessage = t.message ?: t.toString()
-                                notify("注册返回解析失败：${lastMessage}")
-                            }.onSuccess { (nodeId, hubId, roleMsg) ->
-                                val (role, msg) = roleMsg
-                                onCfgChange(
-                                    cfg.copy(
-                                        nodeId = if (nodeId > 0) nodeId.toString() else cfg.nodeId,
-                                        hubId = if (hubId > 0) hubId.toString() else cfg.hubId,
-                                        role = role.ifBlank { cfg.role },
-                                    ),
-                                )
-                                lastMessage = msg.ifBlank { "Registered." }
-                                notify(lastMessage)
+                            if (!connected) {
+                                ui.info("请先 Connect")
+                                return@FilledTonalButton
                             }
-                        } finally {
-                            if (opJob === localJob) busy = false
-                        }
-                    }
-                    opJob = job
-                },
-            ) { Text("Register") }
-
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
-                    val g = go ?: run {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
-                    }
-                    if (!connected) {
-                        notify("请先 Connect")
-                        return@Button
-                    }
-                    if (cfg.deviceId.isBlank()) {
-                        notify("Device ID 不能为空")
-                        return@Button
-                    }
-                    if (cfg.nodeId.isBlank()) {
-                        notify("Node ID 不能为空（可先 Register 获取）")
-                        return@Button
-                    }
-                    opJob?.cancel()
-                    busy = true
-                    notify("正在登录…")
-                    val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
-                        try {
-                            val respResult = withContext(Dispatchers.IO) { runCatching { g.login(cfg.deviceId, cfg.nodeId) } }
-                            val resp = respResult.onFailure { t ->
-                                lastMessage = t.message ?: t.toString()
-                                notify("登录失败：${lastMessage}")
-                            }.getOrDefault("")
-
-                            if (resp.isBlank()) {
-                                return@launch
+                            if (cfg.deviceId.isBlank()) {
+                                ui.info("Device ID 不能为空")
+                                return@FilledTonalButton
                             }
+                            val token = beginOp("正在注册…")
+                            val job = scope.launch {
+                                try {
+                                    val respResult = withContext(Dispatchers.IO) { runCatching { g.register(cfg.deviceId) } }
+                                    if (opSeq != token) return@launch
+                                    val resp = respResult.onFailure { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("注册失败：${lastMessage}")
+                                    }.getOrDefault("")
 
-                            val parsed = runCatching {
-                                val obj = JSONObject(resp)
-                                val nodeId = obj.optLong("node_id", 0)
-                                val hubId = obj.optLong("hub_id", 0)
-                                val role = obj.optString("role", "")
-                                val msg = obj.optString("msg", "")
-                                Triple(nodeId, hubId, Pair(role, msg))
-                            }
+                                    if (resp.isBlank()) {
+                                        ui.error("注册失败：返回为空")
+                                        return@launch
+                                    }
 
-                            parsed.onFailure { t ->
-                                lastMessage = t.message ?: t.toString()
-                                notify("登录返回解析失败：${lastMessage}")
-                            }.onSuccess { (nodeId, hubId, roleMsg) ->
-                                val (role, msg) = roleMsg
-                                onCfgChange(
-                                    cfg.copy(
-                                        nodeId = if (nodeId > 0) nodeId.toString() else cfg.nodeId,
-                                        hubId = if (hubId > 0) hubId.toString() else cfg.hubId,
-                                        role = role.ifBlank { cfg.role },
-                                    ),
-                                )
-                                lastMessage = msg.ifBlank { "Logged in." }
-                                notify(lastMessage)
+                                    val parsed = runCatching {
+                                        val obj = JSONObject(resp)
+                                        val nodeId = obj.optLong("node_id", 0)
+                                        val hubId = obj.optLong("hub_id", 0)
+                                        val role = obj.optString("role", "")
+                                        val msg = obj.optString("msg", "")
+                                        Triple(nodeId, hubId, Pair(role, msg))
+                                    }
+
+                                    if (opSeq != token) return@launch
+                                    parsed.onFailure { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("注册返回解析失败：${lastMessage}")
+                                    }.onSuccess { (nodeId, hubId, roleMsg) ->
+                                        val (role, msg) = roleMsg
+                                        onCfgChange(
+                                            cfg.copy(
+                                                nodeId = if (nodeId > 0) nodeId.toString() else cfg.nodeId,
+                                                hubId = if (hubId > 0) hubId.toString() else cfg.hubId,
+                                                role = role.ifBlank { cfg.role },
+                                            ),
+                                        )
+                                        lastMessage = msg.ifBlank { "Registered." }
+                                        ui.success(lastMessage)
+                                    }
+                                } catch (_: CancellationException) {
+                                    // ignore
+                                } finally {
+                                    endOp(token)
+                                }
                             }
-                        } finally {
-                            if (opJob === localJob) busy = false
-                        }
+                            opJob = job
+                        },
+                    ) { Text("Register") }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null && !busy,
+                        onClick = {
+                            val g = go ?: run {
+                                ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                                return@FilledTonalButton
+                            }
+                            if (!connected) {
+                                ui.info("请先 Connect")
+                                return@FilledTonalButton
+                            }
+                            if (cfg.deviceId.isBlank()) {
+                                ui.info("Device ID 不能为空")
+                                return@FilledTonalButton
+                            }
+                            if (cfg.nodeId.isBlank()) {
+                                ui.info("Node ID 不能为空（可先 Register 获取）")
+                                return@FilledTonalButton
+                            }
+                            val token = beginOp("正在登录…")
+                            val job = scope.launch {
+                                try {
+                                    val respResult = withContext(Dispatchers.IO) {
+                                        runCatching { g.login(cfg.deviceId, cfg.nodeId) }
+                                    }
+                                    if (opSeq != token) return@launch
+                                    val resp = respResult.onFailure { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("登录失败：${lastMessage}")
+                                    }.getOrDefault("")
+
+                                    if (resp.isBlank()) {
+                                        ui.error("登录失败：返回为空")
+                                        return@launch
+                                    }
+
+                                    val parsed = runCatching {
+                                        val obj = JSONObject(resp)
+                                        val nodeId = obj.optLong("node_id", 0)
+                                        val hubId = obj.optLong("hub_id", 0)
+                                        val role = obj.optString("role", "")
+                                        val msg = obj.optString("msg", "")
+                                        Triple(nodeId, hubId, Pair(role, msg))
+                                    }
+
+                                    if (opSeq != token) return@launch
+                                    parsed.onFailure { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("登录返回解析失败：${lastMessage}")
+                                    }.onSuccess { (nodeId, hubId, roleMsg) ->
+                                        val (role, msg) = roleMsg
+                                        onCfgChange(
+                                            cfg.copy(
+                                                nodeId = if (nodeId > 0) nodeId.toString() else cfg.nodeId,
+                                                hubId = if (hubId > 0) hubId.toString() else cfg.hubId,
+                                                role = role.ifBlank { cfg.role },
+                                            ),
+                                        )
+                                        lastMessage = msg.ifBlank { "Logged in." }
+                                        ui.success(lastMessage)
+                                    }
+                                } catch (_: CancellationException) {
+                                    // ignore
+                                } finally {
+                                    endOp(token)
+                                }
+                            }
+                            opJob = job
+                        },
+                    ) { Text("Login") }
+
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null && !busy,
+                        onClick = {
+                            val g = go ?: run {
+                                ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
+                                return@OutlinedButton
+                            }
+                            val token = beginOp("正在清除登录状态…")
+                            val job = scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { runCatching { g.clearAuth() } }
+                                    if (opSeq != token) return@launch
+                                    onCfgChange(cfg.copy(nodeId = "", hubId = "", role = ""))
+                                    lastMessage = "Cleared auth."
+                                    ui.success("已清除")
+                                } catch (_: CancellationException) {
+                                    // ignore
+                                } finally {
+                                    endOp(token)
+                                }
+                            }
+                            opJob = job
+                        },
+                    ) { Text("ClearAuth") }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (cfg.hubId.isNotBlank()) {
+                        AssistChip(onClick = {}, label = { Text("Hub ${cfg.hubId}") })
                     }
-                    opJob = job
-                },
-            ) { Text("Login") }
+                    if (cfg.role.isNotBlank()) {
+                        AssistChip(onClick = {}, label = { Text(cfg.role) })
+                    }
+                }
+
+                if (lastMessage.isNotBlank()) {
+                    Text("Message: $lastMessage")
+                }
+            }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                enabled = go != null && !busy,
-                onClick = {
-                    val g = go ?: run {
-                        notify("Go 不可用：${goError.ifBlank { "unknown error" }}")
-                        return@Button
-                    }
-                    opJob?.cancel()
-                    busy = true
-                    notify("正在清除登录状态…")
-                    val job = scope.launch {
-                        val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
-                        try {
-                            withContext(Dispatchers.IO) { runCatching { g.clearAuth() } }
-                            onCfgChange(cfg.copy(nodeId = "", hubId = "", role = ""))
-                            lastMessage = "Cleared auth."
-                            notify("已清除")
-                        } finally {
-                            if (opJob === localJob) busy = false
-                        }
-                    }
-                    opJob = job
-                },
-            ) { Text("ClearAuth") }
-        }
-
-        if (cfg.hubId.isNotBlank()) {
-            Text("Hub ID: ${cfg.hubId}")
-        }
-        if (cfg.role.isNotBlank()) {
-            Text("Role: ${cfg.role}")
-        }
-        if (lastMessage.isNotBlank()) {
-            Text("Message: $lastMessage")
-        }
+        Text("WorkDir: $workDir")
     }
 }

@@ -2,15 +2,19 @@ package com.myflowhub.android.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.myflowhub.android.GoClientBridge
 import com.myflowhub.android.Prefs
@@ -54,6 +59,7 @@ fun DevicesScreen(
     go: GoClientBridge?,
     goError: String,
     cfg: Prefs.ClientConfig,
+    ui: UiNotifier,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -159,6 +165,7 @@ fun DevicesScreen(
     fun loadRoot() {
         scope.launch {
             status = ""
+            ui.progress("正在加载设备树…")
             try {
                 val (sourceId, hubId) = ensureIdentity()
                 val rootId = rootTargetId.trim().ifBlank { hubId }.toLong()
@@ -185,10 +192,13 @@ fun DevicesScreen(
                 rootNode.hasChildrenHint = rootNode.children?.isNotEmpty() == true
                 rootNode.loading = false
                 status = "Loaded root $rootId"
+                ui.success("已加载 Root $rootId")
             } catch (t: Throwable) {
-                status = toErrorMessage(t)
+                val msg = toErrorMessage(t)
+                status = msg
                 root?.loading = false
-                root?.error = toErrorMessage(t)
+                root?.error = msg
+                ui.error("加载失败：$msg")
             }
         }
     }
@@ -277,6 +287,7 @@ fun DevicesScreen(
         if (go == null || sourceId.isBlank() || targetId <= 0) return
         scope.launch {
             configMessage = ""
+            ui.progress("正在加载配置 Key 列表…")
             try {
                 val resp = withContext(Dispatchers.IO) {
                     go.configList(sourceId, targetId.toString())
@@ -295,8 +306,10 @@ fun DevicesScreen(
                 }
                 configKeys = list.sorted()
                 configMessage = "Loaded ${configKeys.size} keys."
+                ui.success("已加载 ${configKeys.size} 个 Key")
             } catch (t: Throwable) {
                 configMessage = toErrorMessage(t)
+                ui.error("加载失败：${configMessage}")
             }
         }
     }
@@ -308,6 +321,7 @@ fun DevicesScreen(
         if (go == null || sourceId.isBlank() || targetId <= 0 || key.isBlank()) return
         scope.launch {
             configMessage = ""
+            ui.progress("正在读取配置…")
             try {
                 val resp = withContext(Dispatchers.IO) {
                     go.configGet(sourceId, targetId.toString(), key)
@@ -320,8 +334,10 @@ fun DevicesScreen(
                 }
                 configValue = obj.optString("value", "")
                 configMessage = "OK"
+                ui.success("已读取")
             } catch (t: Throwable) {
                 configMessage = toErrorMessage(t)
+                ui.error("读取失败：${configMessage}")
             }
         }
     }
@@ -333,6 +349,7 @@ fun DevicesScreen(
         if (go == null || sourceId.isBlank() || targetId <= 0 || key.isBlank()) return
         scope.launch {
             configMessage = ""
+            ui.progress("正在保存配置…")
             try {
                 val resp = withContext(Dispatchers.IO) {
                     go.configSet(sourceId, targetId.toString(), key, configValue)
@@ -344,8 +361,10 @@ fun DevicesScreen(
                     throw IllegalStateException(msg)
                 }
                 configMessage = "Saved."
+                ui.success("已保存")
             } catch (t: Throwable) {
                 configMessage = toErrorMessage(t)
+                ui.error("保存失败：${configMessage}")
             }
         }
     }
@@ -356,50 +375,191 @@ fun DevicesScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Devices")
         if (go == null) {
-            Text("Go AAR unavailable: ${goError.ifBlank { "unknown error" }}")
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { mode = DevicesMode.Direct }) { Text("Direct") }
-            Button(onClick = { mode = DevicesMode.Subtree }) { Text("Subtree") }
-            Button(enabled = go != null, onClick = { loadRoot() }) { Text("Load") }
-        }
-
-        OutlinedTextField(
-            value = rootTargetId,
-            onValueChange = { rootTargetId = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Root target node id (default hub id)") },
-            singleLine = true,
-        )
-
-        if (status.isNotBlank()) {
-            Text("Status: $status")
-        }
-
-        HorizontalDivider()
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = true)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            val r = root
-            if (r == null) {
-                Text("No data. Load to start.")
-            } else {
-                TreeNodeView(node = r, depth = 0, onToggle = { toggle(it) }, onSelect = { select(it.nodeId) })
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Go AAR 不可用", fontWeight = FontWeight.SemiBold)
+                    Text(goError.ifBlank { "unknown error" })
+                }
             }
         }
 
-        HorizontalDivider()
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("浏览", fontWeight = FontWeight.SemiBold)
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Selected: ${if (selectedNodeId > 0) selectedNodeId.toString() else "-"}")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (mode == DevicesMode.Direct) {
+                        FilledTonalButton(modifier = Modifier.weight(1f), onClick = {}) { Text("Direct") }
+                    } else {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            enabled = go != null,
+                            onClick = { mode = DevicesMode.Direct },
+                        ) { Text("Direct") }
+                    }
+
+                    if (mode == DevicesMode.Subtree) {
+                        FilledTonalButton(modifier = Modifier.weight(1f), onClick = {}) { Text("Subtree") }
+                    } else {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            enabled = go != null,
+                            onClick = { mode = DevicesMode.Subtree },
+                        ) { Text("Subtree") }
+                    }
+
+                    FilledTonalButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = go != null,
+                        onClick = { loadRoot() },
+                    ) { Text("Load") }
+                }
+
+                OutlinedTextField(
+                    value = rootTargetId,
+                    onValueChange = { rootTargetId = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Root target node id") },
+                    placeholder = { Text("默认使用 Hub ID") },
+                    singleLine = true,
+                )
+
+                if (status.isNotBlank()) {
+                    AssistChip(onClick = {}, label = { Text(status) })
+                }
+            }
+        }
+
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f, fill = true)) {
+            val isWide = maxWidth >= 900.dp
+            if (isWide) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    DeviceTreePane(
+                        modifier = Modifier.weight(0.45f).fillMaxHeight(),
+                        root = root,
+                        onToggle = { toggle(it) },
+                        onSelect = { select(it) },
+                    )
+                    DeviceDetailsPane(
+                        modifier = Modifier.weight(0.55f).fillMaxHeight(),
+                        selectedNodeId = selectedNodeId,
+                        nodeInfo = nodeInfo,
+                        nodeInfoError = nodeInfoError,
+                        configKeys = configKeys,
+                        configKey = configKey,
+                        configValue = configValue,
+                        configMessage = configMessage,
+                        onConfigKeyChange = { configKey = it },
+                        onConfigValueChange = { configValue = it },
+                        onConfigKeyPick = { picked ->
+                            configKey = picked
+                            configMessage = ""
+                        },
+                        onConfigList = { configList() },
+                        onConfigGet = { configGet() },
+                        onConfigSet = { configSet() },
+                    )
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DeviceTreePane(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = true),
+                        root = root,
+                        onToggle = { toggle(it) },
+                        onSelect = { select(it) },
+                    )
+                    DeviceDetailsPane(
+                        modifier = Modifier.fillMaxWidth(),
+                        selectedNodeId = selectedNodeId,
+                        nodeInfo = nodeInfo,
+                        nodeInfoError = nodeInfoError,
+                        configKeys = configKeys,
+                        configKey = configKey,
+                        configValue = configValue,
+                        configMessage = configMessage,
+                        onConfigKeyChange = { configKey = it },
+                        onConfigValueChange = { configValue = it },
+                        onConfigKeyPick = { picked ->
+                            configKey = picked
+                            configMessage = ""
+                        },
+                        onConfigList = { configList() },
+                        onConfigGet = { configGet() },
+                        onConfigSet = { configSet() },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceTreePane(
+    modifier: Modifier,
+    root: DeviceTreeNode?,
+    onToggle: (DeviceTreeNode) -> Unit,
+    onSelect: (Long) -> Unit,
+) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Tree", fontWeight = FontWeight.SemiBold)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = true)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (root == null) {
+                    Text("No data. Load to start.")
+                } else {
+                    TreeNodeView(node = root, depth = 0, onToggle = onToggle, onSelect = { onSelect(it.nodeId) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceDetailsPane(
+    modifier: Modifier,
+    selectedNodeId: Long,
+    nodeInfo: Map<String, String>,
+    nodeInfoError: String,
+    configKeys: List<String>,
+    configKey: String,
+    configValue: String,
+    configMessage: String,
+    onConfigKeyChange: (String) -> Unit,
+    onConfigValueChange: (String) -> Unit,
+    onConfigKeyPick: (String) -> Unit,
+    onConfigList: () -> Unit,
+    onConfigGet: () -> Unit,
+    onConfigSet: () -> Unit,
+) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Details", fontWeight = FontWeight.SemiBold)
+            AssistChip(
+                onClick = {},
+                label = { Text("Selected: ${if (selectedNodeId > 0) selectedNodeId.toString() else "-"}") },
+            )
+
             if (nodeInfoError.isNotBlank()) {
                 Text("NodeInfo error: $nodeInfoError")
             }
@@ -412,28 +572,24 @@ fun DevicesScreen(
                 }
             }
 
-            HorizontalDivider()
-
-            Text("Config")
+            Text("Config", fontWeight = FontWeight.SemiBold)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(enabled = selectedNodeId > 0, onClick = { configList() }) { Text("List") }
-                Button(enabled = selectedNodeId > 0, onClick = { configGet() }) { Text("Get") }
-                Button(enabled = selectedNodeId > 0, onClick = { configSet() }) { Text("Set") }
+                FilledTonalButton(enabled = selectedNodeId > 0, onClick = onConfigList, modifier = Modifier.weight(1f)) {
+                    Text("List")
+                }
+                FilledTonalButton(enabled = selectedNodeId > 0, onClick = onConfigGet, modifier = Modifier.weight(1f)) {
+                    Text("Get")
+                }
+                FilledTonalButton(enabled = selectedNodeId > 0, onClick = onConfigSet, modifier = Modifier.weight(1f)) {
+                    Text("Set")
+                }
             }
 
             if (configKeys.isNotEmpty()) {
                 Text("Keys: ${configKeys.size}")
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     configKeys.take(6).forEach { k ->
-                        Text(
-                            text = k,
-                            modifier = Modifier
-                                .clickable {
-                                    configKey = k
-                                    configMessage = ""
-                                }
-                                .padding(4.dp),
-                        )
+                        AssistChip(onClick = { onConfigKeyPick(k) }, label = { Text(k) })
                     }
                 }
                 if (configKeys.size > 6) {
@@ -443,20 +599,20 @@ fun DevicesScreen(
 
             OutlinedTextField(
                 value = configKey,
-                onValueChange = { configKey = it },
+                onValueChange = { onConfigKeyChange(it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Key") },
                 singleLine = true,
             )
             OutlinedTextField(
                 value = configValue,
-                onValueChange = { configValue = it },
+                onValueChange = { onConfigValueChange(it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Value") },
                 singleLine = true,
             )
             if (configMessage.isNotBlank()) {
-                Text("Config: $configMessage")
+                AssistChip(onClick = {}, label = { Text(configMessage) })
             }
         }
     }
