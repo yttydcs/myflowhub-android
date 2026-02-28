@@ -196,8 +196,9 @@ fun AppRoot() {
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWide = maxWidth >= 900.dp
-        val chromeContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
-        val contentContainerColor = MaterialTheme.colorScheme.surface
+        // 背景（内容区）使用轻微灰阶，分区块 Card 使用更白的 surface，实现“前景块/背景”层次交换。
+        val chromeContainerColor = MaterialTheme.colorScheme.surface
+        val contentContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
 
         if (isWide) {
             Row(modifier = Modifier.fillMaxSize()) {
