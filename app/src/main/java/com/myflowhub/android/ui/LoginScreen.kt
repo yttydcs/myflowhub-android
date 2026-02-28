@@ -547,6 +547,9 @@ fun LoginScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (cfg.nodeId.isNotBlank()) {
+                        AssistChip(onClick = {}, label = { Text("Node ${cfg.nodeId}") })
+                    }
                     if (cfg.hubId.isNotBlank()) {
                         AssistChip(onClick = {}, label = { Text("Hub ${cfg.hubId}") })
                     }
