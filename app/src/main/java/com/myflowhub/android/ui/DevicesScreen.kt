@@ -8,16 +8,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -34,11 +40,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.myflowhub.android.GoClientBridge
 import com.myflowhub.android.Prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -57,6 +67,22 @@ private class DeviceTreeNode(
     var loading by mutableStateOf(false)
     var error by mutableStateOf("")
     var children by mutableStateOf<List<DeviceTreeNode>?>(null)
+}
+
+@Stable
+private class ConfigEntryState(
+    val key: String,
+) {
+    var value by mutableStateOf("")
+    var valueLoaded by mutableStateOf(false)
+    var loading by mutableStateOf(false)
+    var loadError by mutableStateOf("")
+
+    var dirty by mutableStateOf(false)
+    var saving by mutableStateOf(false)
+    var saveError by mutableStateOf("")
+
+    var loadToken by mutableStateOf(0)
 }
 
 @Composable
@@ -254,7 +280,10 @@ fun DevicesScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (go == null) {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Go AAR 不可用", fontWeight = FontWeight.SemiBold)
                     Text(goError.ifBlank { "unknown error" })
@@ -262,7 +291,10 @@ fun DevicesScreen(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -286,7 +318,10 @@ fun DevicesScreen(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth().weight(1f, fill = true)) {
+        Card(
+            modifier = Modifier.fillMaxWidth().weight(1f, fill = true),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -358,6 +393,7 @@ private fun TreeNodeView(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = indent),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
@@ -375,6 +411,7 @@ private fun TreeNodeView(
                     enabled = canExpand,
                     onClick = { onToggle(node) },
                     modifier = Modifier.width(42.dp).height(42.dp),
+                    shape = RoundedCornerShape(0.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text(glyph)
@@ -417,11 +454,11 @@ private fun TreeNodeView(
                     label = { Text(statusLabel) },
                 )
 
-                OutlinedButton(onClick = { onEdit(node) }) { Text("Edit") }
-
                 if (node.error.isNotBlank() && !node.duplicate) {
                     OutlinedButton(onClick = { onRetry(node) }) { Text("Retry") }
                 }
+
+                OutlinedButton(onClick = { onEdit(node) }) { Text("Edit") }
             }
 
             val children = node.children
@@ -455,6 +492,8 @@ private fun NodeDetailsDialog(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var items by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    val isUiNode = cfg.nodeId.trim().toLongOrNull() == nodeId
 
     fun toErrorMessage(err: Throwable): String = err.message ?: err.toString()
 
@@ -513,6 +552,27 @@ private fun NodeDetailsDialog(
                 }
                 if (error.isNotBlank()) {
                     Text("Error: $error")
+                    Text("提示：该节点可能未实现 node_info，或当前身份无权限读取。")
+                }
+
+                if (!loading && error.isBlank() && items.isEmpty()) {
+                    Text("No node_info returned.")
+                    Text("提示：该节点可能不支持 node_info，或暂时不可达。")
+                }
+
+                if (isUiNode) {
+                    Text("UI 节点（本地信息）", fontWeight = FontWeight.SemiBold)
+                    Text("UI DeviceID: ${cfg.deviceId}")
+                    if (cfg.hubId.isNotBlank()) {
+                        Text("HubID: ${cfg.hubId}")
+                    }
+                    if (cfg.role.isNotBlank()) {
+                        Text("Role: ${cfg.role}")
+                    }
+                    if (cfg.targetAddr.isNotBlank()) {
+                        Text("TargetAddr: ${cfg.targetAddr}")
+                    }
+                    Text("Login NodeID: ${cfg.nodeId}")
                 }
                 if (items.isNotEmpty()) {
                     items.entries.take(30).forEach { (k, v) ->
@@ -544,40 +604,28 @@ private fun NodeEditDialog(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var busyLabel by remember { mutableStateOf("") }
+    val valueSemaphore = remember(nodeId) { Semaphore(permits = 4) }
+    val entryStates = remember(nodeId) { mutableMapOf<String, ConfigEntryState>() }
 
+    var keysLoading by remember { mutableStateOf(false) }
+    var keysError by remember { mutableStateOf("") }
     var configKeys by remember { mutableStateOf<List<String>>(emptyList()) }
-    var configKey by remember { mutableStateOf("") }
-    var configValue by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("") }
 
     fun toErrorMessage(err: Throwable): String = err.message ?: err.toString()
 
-    fun begin(label: String) {
-        busy = true
-        busyLabel = label
-        message = ""
-        ui.progress(label)
-    }
-
-    fun end() {
-        busy = false
-        busyLabel = ""
-    }
-
-    fun requireSourceId(): String {
+    suspend fun requireSourceId(): String {
         val g = go ?: throw IllegalStateException("Go AAR unavailable")
         val sourceId = cfg.nodeId.trim()
         if (sourceId.isBlank()) throw IllegalStateException("Login required.")
-        val connected = runCatching { g.isConnected() }.getOrDefault(false)
+        val connected = withContext(Dispatchers.IO) { runCatching { g.isConnected() }.getOrDefault(false) }
         if (!connected) throw IllegalStateException("Connect before editing.")
         return sourceId
     }
 
-    fun configList() {
+    fun loadKeys() {
         scope.launch {
-            begin("正在加载配置 Key 列表…")
+            keysLoading = true
+            keysError = ""
             try {
                 val sourceId = requireSourceId()
                 val resp = withContext(Dispatchers.IO) {
@@ -596,24 +644,27 @@ private fun NodeEditDialog(
                     if (k.isNotBlank()) list.add(k)
                 }
                 configKeys = list.sorted()
-                message = "Loaded ${configKeys.size} keys."
                 ui.success("已加载 ${configKeys.size} 个 Key")
+            } catch (t: CancellationException) {
+                throw t
             } catch (t: Throwable) {
-                message = toErrorMessage(t)
-                ui.error("加载失败：$message")
+                keysError = toErrorMessage(t)
+                ui.error("加载失败：$keysError")
             } finally {
-                end()
+                keysLoading = false
             }
         }
     }
 
-    fun configGet() {
-        scope.launch {
-            begin("正在读取配置…")
-            try {
-                val sourceId = requireSourceId()
-                val key = configKey.trim()
-                if (key.isBlank()) throw IllegalStateException("Key 不能为空")
+    suspend fun loadValue(key: String, entry: ConfigEntryState) {
+        val token = entry.loadToken + 1
+        entry.loadToken = token
+        entry.loading = true
+        entry.loadError = ""
+        entry.saveError = ""
+        try {
+            val sourceId = requireSourceId()
+            val value = valueSemaphore.withPermit {
                 val resp = withContext(Dispatchers.IO) {
                     go!!.configGet(sourceId, nodeId.toString(), key)
                 }
@@ -623,27 +674,33 @@ private fun NodeEditDialog(
                     val msg = obj.optString("msg", "").ifBlank { "request failed (code=$code)" }
                     throw IllegalStateException(msg)
                 }
-                configValue = obj.optString("value", "")
-                message = "OK"
-                ui.success("已读取")
-            } catch (t: Throwable) {
-                message = toErrorMessage(t)
-                ui.error("读取失败：$message")
-            } finally {
-                end()
+                obj.optString("value", "")
+            }
+            if (entry.loadToken != token) return
+            entry.valueLoaded = true
+            if (!entry.dirty) {
+                entry.value = value
+            }
+        } catch (t: CancellationException) {
+            throw t
+        } catch (t: Throwable) {
+            if (entry.loadToken != token) return
+            entry.loadError = toErrorMessage(t)
+        } finally {
+            if (entry.loadToken == token) {
+                entry.loading = false
             }
         }
     }
 
-    fun configSet() {
+    fun saveValue(key: String, entry: ConfigEntryState) {
         scope.launch {
-            begin("正在保存配置…")
+            entry.saving = true
+            entry.saveError = ""
             try {
                 val sourceId = requireSourceId()
-                val key = configKey.trim()
-                if (key.isBlank()) throw IllegalStateException("Key 不能为空")
                 val resp = withContext(Dispatchers.IO) {
-                    go!!.configSet(sourceId, nodeId.toString(), key, configValue)
+                    go!!.configSet(sourceId, nodeId.toString(), key, entry.value)
                 }
                 val obj = JSONObject(resp)
                 val code = obj.optInt("code", 0)
@@ -651,15 +708,21 @@ private fun NodeEditDialog(
                     val msg = obj.optString("msg", "").ifBlank { "request failed (code=$code)" }
                     throw IllegalStateException(msg)
                 }
-                message = "Saved."
-                ui.success("已保存")
+                entry.dirty = false
+                ui.success("已保存：$key")
+            } catch (t: CancellationException) {
+                throw t
             } catch (t: Throwable) {
-                message = toErrorMessage(t)
-                ui.error("保存失败：$message")
+                entry.saveError = toErrorMessage(t)
+                ui.error("保存失败($key)：${entry.saveError}")
             } finally {
-                end()
+                entry.saving = false
             }
         }
+    }
+
+    LaunchedEffect(nodeId, go, cfg.nodeId) {
+        loadKeys()
     }
 
     AlertDialog(
@@ -667,67 +730,91 @@ private fun NodeEditDialog(
         title = { Text("Edit Node $nodeId") },
         text = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (busy) {
+                if (keysLoading) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    if (busyLabel.isNotBlank()) {
-                        Text(busyLabel)
-                    }
                 }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    FilledTonalButton(enabled = !busy, onClick = { configList() }, modifier = Modifier.weight(1f)) {
-                        Text("List")
-                    }
-                    FilledTonalButton(enabled = !busy, onClick = { configGet() }, modifier = Modifier.weight(1f)) {
-                        Text("Get")
-                    }
-                    FilledTonalButton(enabled = !busy, onClick = { configSet() }, modifier = Modifier.weight(1f)) {
-                        Text("Set")
-                    }
+                    Text("Keys: ${configKeys.size}", modifier = Modifier.weight(1f))
+                    OutlinedButton(enabled = !keysLoading, onClick = { loadKeys() }) { Text("Reload") }
+                }
+
+                if (keysError.isNotBlank()) {
+                    Text("Error: $keysError")
+                }
+
+                if (configKeys.isEmpty() && !keysLoading && keysError.isBlank()) {
+                    Text("No keys.")
                 }
 
                 if (configKeys.isNotEmpty()) {
-                    Text("Keys: ${configKeys.size}")
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        configKeys.take(8).forEach { k ->
-                            AssistChip(
-                                onClick = {
-                                    configKey = k
-                                    message = ""
-                                },
-                                label = { Text(k) },
-                            )
-                        }
-                        if (configKeys.size > 8) {
-                            Text("…")
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(configKeys, key = { it }) { key ->
+                            val entry = entryStates.getOrPut(key) { ConfigEntryState(key = key) }
+
+                            LaunchedEffect(nodeId, key) {
+                                if (!entry.valueLoaded && !entry.loading && entry.loadError.isBlank()) {
+                                    loadValue(key, entry)
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = key,
+                                        modifier = Modifier.width(140.dp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+
+                                    OutlinedTextField(
+                                        value = entry.value,
+                                        onValueChange = {
+                                            entry.value = it
+                                            entry.dirty = true
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        enabled = !entry.saving,
+                                    )
+
+                                    OutlinedButton(
+                                        enabled = entry.dirty && !entry.saving,
+                                        onClick = { saveValue(key, entry) },
+                                    ) { Text("Save") }
+                                }
+
+                                if (entry.loading && !entry.valueLoaded) {
+                                    Text("Loading…")
+                                }
+                                if (entry.loadError.isNotBlank()) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Load failed: ${entry.loadError}")
+                                        TextButton(onClick = { scope.launch { loadValue(key, entry) } }) { Text("Retry") }
+                                    }
+                                }
+                                if (entry.saveError.isNotBlank()) {
+                                    Text("Save failed: ${entry.saveError}")
+                                }
+                            }
                         }
                     }
-                }
-
-                OutlinedTextField(
-                    value = configKey,
-                    onValueChange = { configKey = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Key") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = configValue,
-                    onValueChange = { configValue = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Value") },
-                    singleLine = true,
-                )
-                if (message.isNotBlank()) {
-                    AssistChip(onClick = {}, label = { Text(message) })
                 }
             }
         },
