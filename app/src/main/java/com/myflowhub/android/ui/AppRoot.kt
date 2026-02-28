@@ -82,6 +82,7 @@ fun AppRoot() {
     val context = LocalContext.current
     val workDir = remember { File(context.filesDir, "hub").absolutePath }
 
+    val identity = remember { Prefs.ensureIdentity(context) }
     var hubCfg by remember { mutableStateOf(Prefs.load(context)) }
     var clientCfg by remember { mutableStateOf(Prefs.loadClient(context)) }
 
@@ -104,6 +105,11 @@ fun AppRoot() {
         UiNotifier { event ->
             snackEvents.tryEmit(event)
         }
+    }
+
+    LaunchedEffect(identity.migration) {
+        val mig = identity.migration ?: return@LaunchedEffect
+        ui.info("已自动迁移身份：Hub=${mig.hubSelfId} / UI=${mig.uiDeviceId}。登录信息已清空，请重新注册/登录。")
     }
 
     LaunchedEffect(snackbarHostState) {
@@ -146,13 +152,12 @@ fun AppRoot() {
                 go = go,
                 goError = goError,
                 workDir = workDir,
+                hubSelfId = hubCfg.selfId,
                 cfg = clientCfg,
                 ui = ui,
                 onCfgChange = { updated ->
                     clientCfg = updated
                     Prefs.saveClient(context, updated)
-                    hubCfg = hubCfg.copy(selfId = updated.deviceId)
-                    Prefs.save(context, hubCfg)
                 },
             )
 
@@ -163,8 +168,6 @@ fun AppRoot() {
                 onCfgChange = { updated ->
                     hubCfg = updated
                     Prefs.save(context, updated)
-                    clientCfg = clientCfg.copy(deviceId = updated.selfId)
-                    Prefs.saveClient(context, clientCfg)
                 },
             )
 

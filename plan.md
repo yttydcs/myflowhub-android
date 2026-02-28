@@ -1,134 +1,117 @@
-# Plan - Android：浅色层次白 + 顶部品牌栏（MyFlowHub）+ 全页面可滚动
+# MyFlowHub Android：拆分 UI/HUB 身份（-ui/-hub）并自动迁移
 
-> 本 workflow 目标：将应用外框（顶栏/侧栏/抽屉）的观感调整为“Material 浅色层次白（轻微灰阶）”，顶部仅显示 `MyFlowHub + 菜单按钮（窄屏）`，并为所有页面补齐可滚动能力，避免内容超出底部不可见。
+## 目标
 
-## 0. Workflow 信息
+- 让 Android 端在「UI 通过网络协议/子协议控制 Hub」模式下，**UI 与 Hub 为两个独立 Node**：
+  - Hub 使用 `SelfID`（后缀 `-hub`）
+  - UI 使用 `DeviceID`（后缀 `-ui`）
+  - 二者不得再共用同一个 `device_id`，避免在父 HubServer 上映射到同一个 `node_id`。
+- 自动迁移存量配置：旧版本只有一个 ID（同时被 Hub 与 UI 使用）时，升级后自动拆分为：
+  - `base-hub`（Hub SelfID）
+  - `base-ui`（UI DeviceID）
+  - 并清理旧的登录状态，要求重新 Register/Login。
 
-- Workflow 名称：`android-ui-chrome-scroll`
-- 分支（本仓）：`fix/android-ui-chrome`
-- Base：`main`
-- Worktree：`worktrees/fix-android-ui-chrome`
-- 当前状态：已完成需求/架构确认，未开始实现
+## 当前状态
 
-## 1. 背景与问题
+- `main` 已包含 Android UI 外框与提示优化（浅色层次白、顶部 MyFlowHub、全页滚动、操作提示）。
+- 发现问题：Android 端 Hub 与 UI 共用同一 `device_id`（同一 SharedPreferences key），导致：
+  - Hub 先向父 HubServer 注册得到 `node_id=Nh`
+  - UI 再注册/登录仍被父侧映射为同一 `node_id=Nh`，不符合「UI 作为独立 Node」的设计。
 
-1) 视觉：左侧/外框观感偏灰，期望更接近 Material 的浅色层次白（轻微灰阶）。
-2) 顶部：当前顶部显示各 Tab 标题（如 Login/Hub/Devices），期望移除，仅保留品牌栏（MyFlowHub）。
-3) 布局：部分页面内容可能超出底部，缺少滚动，导致信息/按钮不可达。
-4) 交互：窄屏的“打开菜单”按钮希望放在顶部 `MyFlowHub` 位置（品牌栏）。
+## 约束与约定
 
-## 2. 目标与范围
+- 仅在本 worktree 分支实现：`fix/android-identity-split`。
+- 提交信息使用中文（允许 `fix:` 前缀为英文）。
+- 默认后缀：`-ui` / `-hub`（已确认）。
+- 迁移策略：允许同时改动 Hub SelfID 与 UI DeviceID（已确认，可能导致 Hub 的 node_id 变化）。
 
-### 2.1 必须达成（验收口径）
+## 任务清单（Checklist）
 
-- 背景：外框与内容区使用浅色层次白（不明显发灰）。
-- 顶部：仅展示 `MyFlowHub`；不再展示各 Tab 的标题；菜单按钮仅窄屏显示并可打开 Drawer。
-- 滚动：所有页面在内容超出时可纵向滚动到底部（至少 Login/Hub/Protocols；Devices/Logs 需复核并补齐）。
-- 既有约束：Devices **仅宽屏双栏**策略保持不变（`maxWidth >= 900.dp`）。
+### Task 1：Prefs 身份键拆分 + 自动迁移
 
-### 2.2 不做
+- **目标**
+  - 将 SharedPreferences 的 Hub SelfID 与 UI DeviceID 分离存储，不再互相覆盖。
+  - 首次升级时自动从旧单一 ID 迁移为 `base-hub/base-ui`，并清理旧 auth 字段。
+- **涉及文件**
+  - `app/src/main/java/com/myflowhub/android/Prefs.kt`
+  - （如需要）新增 `app/src/main/java/com/myflowhub/android/Identity.kt`
+- **验收条件**
+  - `HubConfig.selfId` 永远读取/写入 Hub 专用 key（值带 `-hub`）。
+  - `ClientConfig.deviceId` 永远读取/写入 UI 专用 key（值带 `-ui`）。
+  - 若检测到旧格式（无 UI key），自动迁移并清空 `auth_node_id/auth_hub_id/auth_role`。
+- **测试点**
+  - 安装旧版后升级：启动后自动生成 `*-hub/*-ui`，且登录信息被清空。
+  - 新装：直接生成 `*-hub/*-ui`（不出现无后缀的 UUID）。
+- **回滚点**
+  - `git revert` 本任务提交；或清除 App 数据重新初始化。
 
-- 不改业务逻辑/协议/Go bridge。
-- 不引入复杂主题系统（不新增自定义 `ColorScheme`），优先通过 Material3 组件参数完成。
+### Task 2：移除 AppRoot 中 Hub/UI 身份互相同步
 
-## 3. 方案设计（执行策略）
-
-### 3.1 外框（App Chrome）
-
-- TopAppBar 固定为品牌栏：title=`MyFlowHub`。
-- 窄屏：TopAppBar 显示菜单按钮（打开 Drawer）。
-- 宽屏：不显示菜单按钮（按用户选择 A）；左侧 `NavigationRail` 常驻。
-- 颜色：优先使用 `MaterialTheme.colorScheme.surface` 作为内容区基底；外框（TopAppBar / Rail / DrawerSheet）使用轻微层次（例如 `surfaceColorAtElevation(...)`）实现“浅色层次白”。
-
-### 3.2 全页面可滚动策略
-
-- Login/Hub/Protocols：页面根容器增加 `verticalScroll(rememberScrollState())`，确保内容溢出可达；必要时增加 `imePadding()`（键盘遮挡时仍可滚动查看按钮）。
-- Devices/Logs：保持现有内部滚动（避免破坏 `weight`/双栏），仅在发现溢出或不可达时做最小补丁（例如为非滚动容器补齐 scroll 或 insets）。
-
-## 4. 任务清单（Checklist）
-
-### ANDUI3-1：AppRoot 顶部品牌栏 + 外框浅色层次白
-
-- **目标**：顶部仅显示 `MyFlowHub`；窄屏带菜单按钮打开 Drawer；外框与侧栏/抽屉不再明显偏灰。
+- **目标**
+  - 防止 UI 修改 DeviceID 时覆盖 Hub SelfID，或 Hub 修改 SelfID 时覆盖 UI DeviceID。
+  - 启动时在迁移完成后加载配置，并在 UI 给出一次性提示（snackbar）。
 - **涉及文件**
   - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
 - **验收条件**
-  - 宽/窄屏顶部均不出现 `Login/Hub/Devices/...` 标题；窄屏菜单按钮位于品牌栏并可打开 Drawer。
-  - 左侧 Rail / DrawerSheet 观感为浅色层次白（轻微灰阶）。
+  - `LoginScreen.onCfgChange` 不再写 Hub 配置的 `selfId`。
+  - `HubScreen.onCfgChange` 不再写 Client 配置的 `deviceId`。
+  - 迁移发生时提示包含新旧关键值（至少提示“已迁移，需要重新注册/登录”）。
 - **测试点**
-  - 手动：窄屏打开/关闭 Drawer；切换 Tab 高亮正确；宽屏 Rail 常驻。
+  - 修改 Hub SelfID 不会改变 UI DeviceID；反之亦然。
 - **回滚点**
-  - revert 本任务提交（仅影响 UI 外框）。
+  - revert 本任务提交。
 
-### ANDUI3-2：Login 全页面可滚动（含键盘遮挡处理）
+### Task 3：UI 文案与诊断信息（减少混淆）
 
-- **目标**：Login 页面内容超出时可滚动到底部；键盘弹出不遮挡关键按钮。
+- **目标**
+  - Hub 页面清晰标注 `Hub Self ID (-hub)`。
+  - Login 页面清晰标注 `UI Device ID (-ui)`，并展示当前 Hub SelfID 供对照。
+  - 若检测到二者相同或后缀不符合规范，给出明确提示并提供一键修正（按策略自动拆分）。
 - **涉及文件**
   - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
-- **验收条件**
-  - 小高度/横屏下，可滚动看到所有卡片与按钮；输入时键盘弹出仍可滚动操作。
-- **测试点**
-  - 手动：横屏/小窗口（分屏）打开 Login；聚焦输入框弹出键盘；滚动到最底部。
-- **回滚点**
-  - revert 本任务提交（仅 UI 布局）。
-
-### ANDUI3-3：Hub 全页面可滚动
-
-- **目标**：Hub 页面内容超出时可滚动到底部，Start/Stop 与状态区可达。
-- **涉及文件**
   - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
 - **验收条件**
-  - 小高度/横屏下可滚动看到“配置/操作/状态”全部内容。
+  - 用户能在界面上直观看到两套 ID，不再误以为“应该相同”。
 - **测试点**
-  - 手动：横屏进入 Hub；滚动到底部查看状态卡；Start/Stop 操作不受影响。
+  - 手动把两者改成相同值后，能被提示并自动修正。
 - **回滚点**
   - revert 本任务提交。
 
-### ANDUI3-4：Protocols 全页面可滚动（包含 ProtocolConsole）
+### Task 4：登录/注册成功判定与桥接返回值健壮性
 
-- **目标**：Protocols 页面在选择协议后，控制台内容超出时可滚动到底部并可点击 Send。
+- **目标**
+  - 避免出现“返回 `{}` 仍提示成功”的假象。
+  - 当返回缺少 `node_id` / `hub_id` 等关键字段时，明确提示失败原因。
 - **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/ProtocolsScreen.kt`
+  - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
+  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
 - **验收条件**
-  - ProtocolConsole 在小高度/横屏下可滚动看到所有输入与 SendAndAwait 按钮。
+  - `register/login` 若反射调用失败或返回 `null`，UI 必须走失败提示路径。
+  - `register/login` 解析成功但 `node_id<=0` 时，不写入配置并提示异常。
 - **测试点**
-  - 手动：进入 Protocols → 选择任一协议 → 滚动到底部；尝试发送（不要求业务成功）。
+  - 正常链路：Register -> node_id 写入；Login -> Logged in 提示。
+  - 异常链路：断网/未 connect/非法 node_id 时提示准确。
 - **回滚点**
   - revert 本任务提交。
 
-### ANDUI3-5：Devices/Logs “全页面可滚动”复核与最小补丁
+### Task 5：构建与冒烟验证
 
-- **目标**：确保 Devices/Logs 在小高度/窄屏下无“内容不可达/被截断”。（不做大改动，优先最小修复）
-- **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/DevicesScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/LogsScreen.kt`
-- **验收条件**
-  - Devices：树/详情任一 pane 内容过长时可滚动；窄屏下详情区可滚动；关键按钮可达。
-  - Logs：日志区可滚动；页面按钮/输入区不会被遮挡导致不可操作。
-- **测试点**
-  - 手动：窄屏进入 Devices/Logs，尝试滚动长内容；横屏/分屏复核。
-- **回滚点**
-  - 如有改动：revert 本任务提交。
-
-### ANDUI3-6：本地构建与冒烟（debug）
-
-- **目标**：可构建 APK 并在真机验证外框/滚动。
-- **命令**
+- **构建**
   - `./gradlew :app:assembleDebug`
-- **验收条件**
-  - 安装后：外框/滚动符合验收口径；无明显布局错乱。
-- **回滚点**
-  - 无（仅验证）。
+- **冒烟步骤**
+  1. 首次启动（迁移/新装）：确认生成 `*-hub/*-ui`
+  2. Hub：配置 parentAddr，Start，确认 Hub node_id
+  3. UI：Connect 到本机 Hub，Register，确认 UI node_id 与 Hub node_id 不同
+  4. UI：Login，进入 Devices/Protocols 等页面进行一次请求
+- **通过标准**
+  - UI node_id ≠ Hub node_id，且 UI 可稳定发送子协议请求
 
-### ANDUI3-7：Code Review（强制）
+### Task 6：Code Review + 归档
 
-- 按全局 3.3 清单逐项审查并输出结论（通过/不通过）。
+- 进行 3.3 Code Review（逐项结论：通过/不通过）。
+- 创建 `docs/change/YYYY-MM-DD_android-identity-split.md`，映射 Task 1-5，包含验证与回滚方案。
 
-### ANDUI3-8：归档变更（强制）
+## 依赖 / 风险 / 注意事项
 
-- 新增 `docs/change/YYYY-MM-DD_android-ui-chrome-scroll.md`：背景/目标、变更内容、任务映射、关键决策与权衡、测试结果、影响与回滚方案。
-
-## 5. 依赖关系、风险与注意事项
-
-- 风险：Devices/Logs 已存在内部滚动与 `weight`，避免外层再套 scroll 导致嵌套滚动与测量异常；优先做“最小补丁”。必要时仅对关键容器补齐滚动或 insets。
-- 注意：保持 Devices 宽屏双栏阈值与行为不变（用户已确认“仅宽屏双栏”）。
+- 迁移策略会改变 Hub SelfID，导致父侧重新分配 Hub node_id：这是预期行为（已确认）。
+- 本次仅拆分 `device_id` 维度；是否需要进一步拆分 UI/HUB 的密钥/工作目录属于后续可选增强（如有需要需另开 workflow）。

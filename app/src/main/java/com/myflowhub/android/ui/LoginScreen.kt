@@ -42,6 +42,7 @@ fun LoginScreen(
     go: GoClientBridge?,
     goError: String,
     workDir: String,
+    hubSelfId: String,
     cfg: Prefs.ClientConfig,
     ui: UiNotifier,
     onCfgChange: (Prefs.ClientConfig) -> Unit,
@@ -55,6 +56,31 @@ fun LoginScreen(
     var busy by remember { mutableStateOf(false) }
     var busyLabel by remember { mutableStateOf("") }
     var opSeq by remember { mutableStateOf(0) }
+
+    fun baseOf(id: String): String {
+        val trimmed = id.trim()
+        var base = trimmed
+        base = when {
+            base.endsWith("-hub") -> base.removeSuffix("-hub")
+            base.endsWith("-ui") -> base.removeSuffix("-ui")
+            else -> base
+        }
+        base = base.trim().trimEnd('-')
+        return if (base.isBlank()) trimmed else base
+    }
+
+    fun normalizeUiDeviceId(id: String): String {
+        val current = id.trim()
+        if (current.isBlank()) return ""
+        val hubTrimmed = hubSelfId.trim()
+        val base = baseOf(if (hubTrimmed.isNotBlank()) hubTrimmed else current)
+        return when {
+            hubTrimmed.isNotBlank() && current == hubTrimmed && base.isNotBlank() -> "${base}-ui"
+            current.endsWith("-hub") -> "${baseOf(current)}-ui"
+            current.endsWith("-ui") -> current
+            else -> "${current}-ui"
+        }
+    }
 
     suspend fun refreshConn(token: Int? = null) {
         val g = go
@@ -261,11 +287,15 @@ fun LoginScreen(
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("身份与认证", fontWeight = FontWeight.SemiBold)
 
+                if (hubSelfId.isNotBlank()) {
+                    Text("Hub SelfID (-hub): $hubSelfId")
+                }
+
                 OutlinedTextField(
                     value = cfg.deviceId,
                     onValueChange = { onCfgChange(cfg.copy(deviceId = it)) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Device ID") },
+                    label = { Text("UI DeviceID (-ui)") },
                     singleLine = true,
                 )
 
@@ -320,50 +350,70 @@ fun LoginScreen(
                                 ui.info("请先 Connect")
                                 return@FilledTonalButton
                             }
-                            if (cfg.deviceId.isBlank()) {
-                                ui.info("Device ID 不能为空")
+                            val currentDeviceId = cfg.deviceId.trim()
+                            if (currentDeviceId.isBlank()) {
+                                ui.info("UI DeviceID 不能为空")
                                 return@FilledTonalButton
                             }
+                            val normalizedDeviceId = normalizeUiDeviceId(currentDeviceId)
+
+                            if (normalizedDeviceId != currentDeviceId) {
+                                onCfgChange(cfg.copy(deviceId = normalizedDeviceId, nodeId = "", hubId = "", role = ""))
+                                ui.info("已自动修正 UI DeviceID：${normalizedDeviceId}（已清空登录信息）")
+                            }
+
                             val token = beginOp("正在注册…")
                             val job = scope.launch {
                                 try {
-                                    val respResult = withContext(Dispatchers.IO) { runCatching { g.register(cfg.deviceId) } }
+                                    val respResult = withContext(Dispatchers.IO) { runCatching { g.register(normalizedDeviceId) } }
                                     if (opSeq != token) return@launch
-                                    val resp = respResult.onFailure { t ->
-                                        lastMessage = t.message ?: t.toString()
-                                        ui.error("注册失败：${lastMessage}")
-                                    }.getOrDefault("")
 
-                                    if (resp.isBlank()) {
+                                    val resp = respResult.getOrNull()
+                                    if (resp == null) {
+                                        val t = respResult.exceptionOrNull()
+                                        lastMessage = t?.message ?: t.toString()
+                                        ui.error("注册失败：${lastMessage}")
+                                        return@launch
+                                    }
+
+                                    val raw = resp.trim()
+                                    if (raw.isBlank()) {
                                         ui.error("注册失败：返回为空")
                                         return@launch
                                     }
 
-                                    val parsed = runCatching {
-                                        val obj = JSONObject(resp)
-                                        val nodeId = obj.optLong("node_id", 0)
-                                        val hubId = obj.optLong("hub_id", 0)
-                                        val role = obj.optString("role", "")
-                                        val msg = obj.optString("msg", "")
-                                        Triple(nodeId, hubId, Pair(role, msg))
+                                    val obj = runCatching { JSONObject(raw) }.getOrElse { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("注册返回解析失败：${lastMessage}")
+                                        return@launch
                                     }
 
                                     if (opSeq != token) return@launch
-                                    parsed.onFailure { t ->
-                                        lastMessage = t.message ?: t.toString()
-                                        ui.error("注册返回解析失败：${lastMessage}")
-                                    }.onSuccess { (nodeId, hubId, roleMsg) ->
-                                        val (role, msg) = roleMsg
-                                        onCfgChange(
-                                            cfg.copy(
-                                                nodeId = if (nodeId > 0) nodeId.toString() else cfg.nodeId,
-                                                hubId = if (hubId > 0) hubId.toString() else cfg.hubId,
-                                                role = role.ifBlank { cfg.role },
-                                            ),
-                                        )
-                                        lastMessage = msg.ifBlank { "Registered." }
-                                        ui.success(lastMessage)
+
+                                    val nodeId = obj.optLong("node_id", 0)
+                                    val hubId = obj.optLong("hub_id", 0)
+                                    val role = obj.optString("role", "").trim()
+                                    val msg = obj.optString("msg", "").trim()
+
+                                    if (nodeId <= 0) {
+                                        ui.error("注册失败：返回缺少 node_id")
+                                        return@launch
                                     }
+                                    if (hubId <= 0) {
+                                        ui.error("注册失败：返回缺少 hub_id")
+                                        return@launch
+                                    }
+
+                                    onCfgChange(
+                                        cfg.copy(
+                                            deviceId = normalizedDeviceId,
+                                            nodeId = nodeId.toString(),
+                                            hubId = hubId.toString(),
+                                            role = role,
+                                        ),
+                                    )
+                                    lastMessage = msg.ifBlank { "Registered." }
+                                    ui.success(lastMessage)
                                 } catch (_: CancellationException) {
                                     // ignore
                                 } finally {
@@ -388,11 +438,20 @@ fun LoginScreen(
                                 ui.info("请先 Connect")
                                 return@FilledTonalButton
                             }
-                            if (cfg.deviceId.isBlank()) {
-                                ui.info("Device ID 不能为空")
+                            val currentDeviceId = cfg.deviceId.trim()
+                            if (currentDeviceId.isBlank()) {
+                                ui.info("UI DeviceID 不能为空")
                                 return@FilledTonalButton
                             }
-                            if (cfg.nodeId.isBlank()) {
+                            val normalizedDeviceId = normalizeUiDeviceId(currentDeviceId)
+                            if (normalizedDeviceId != currentDeviceId) {
+                                onCfgChange(cfg.copy(deviceId = normalizedDeviceId, nodeId = "", hubId = "", role = ""))
+                                ui.info("已自动修正 UI DeviceID：${normalizedDeviceId}（已清空登录信息），请先 Register")
+                                return@FilledTonalButton
+                            }
+
+                            val nodeIdInput = cfg.nodeId.trim()
+                            if (nodeIdInput.isBlank()) {
                                 ui.info("Node ID 不能为空（可先 Register 获取）")
                                 return@FilledTonalButton
                             }
@@ -400,44 +459,56 @@ fun LoginScreen(
                             val job = scope.launch {
                                 try {
                                     val respResult = withContext(Dispatchers.IO) {
-                                        runCatching { g.login(cfg.deviceId, cfg.nodeId) }
+                                        runCatching { g.login(normalizedDeviceId, nodeIdInput) }
                                     }
                                     if (opSeq != token) return@launch
-                                    val resp = respResult.onFailure { t ->
-                                        lastMessage = t.message ?: t.toString()
-                                        ui.error("登录失败：${lastMessage}")
-                                    }.getOrDefault("")
 
-                                    if (resp.isBlank()) {
+                                    val resp = respResult.getOrNull()
+                                    if (resp == null) {
+                                        val t = respResult.exceptionOrNull()
+                                        lastMessage = t?.message ?: t.toString()
+                                        ui.error("登录失败：${lastMessage}")
+                                        return@launch
+                                    }
+
+                                    val raw = resp.trim()
+                                    if (raw.isBlank()) {
                                         ui.error("登录失败：返回为空")
                                         return@launch
                                     }
 
-                                    val parsed = runCatching {
-                                        val obj = JSONObject(resp)
-                                        val nodeId = obj.optLong("node_id", 0)
-                                        val hubId = obj.optLong("hub_id", 0)
-                                        val role = obj.optString("role", "")
-                                        val msg = obj.optString("msg", "")
-                                        Triple(nodeId, hubId, Pair(role, msg))
+                                    val obj = runCatching { JSONObject(raw) }.getOrElse { t ->
+                                        lastMessage = t.message ?: t.toString()
+                                        ui.error("登录返回解析失败：${lastMessage}")
+                                        return@launch
                                     }
 
                                     if (opSeq != token) return@launch
-                                    parsed.onFailure { t ->
-                                        lastMessage = t.message ?: t.toString()
-                                        ui.error("登录返回解析失败：${lastMessage}")
-                                    }.onSuccess { (nodeId, hubId, roleMsg) ->
-                                        val (role, msg) = roleMsg
-                                        onCfgChange(
-                                            cfg.copy(
-                                                nodeId = if (nodeId > 0) nodeId.toString() else cfg.nodeId,
-                                                hubId = if (hubId > 0) hubId.toString() else cfg.hubId,
-                                                role = role.ifBlank { cfg.role },
-                                            ),
-                                        )
-                                        lastMessage = msg.ifBlank { "Logged in." }
-                                        ui.success(lastMessage)
+
+                                    val nodeId = obj.optLong("node_id", 0)
+                                    val hubId = obj.optLong("hub_id", 0)
+                                    val role = obj.optString("role", "").trim()
+                                    val msg = obj.optString("msg", "").trim()
+
+                                    if (nodeId <= 0) {
+                                        ui.error("登录失败：返回缺少 node_id")
+                                        return@launch
                                     }
+                                    if (hubId <= 0) {
+                                        ui.error("登录失败：返回缺少 hub_id")
+                                        return@launch
+                                    }
+
+                                    onCfgChange(
+                                        cfg.copy(
+                                            deviceId = normalizedDeviceId,
+                                            nodeId = nodeId.toString(),
+                                            hubId = hubId.toString(),
+                                            role = role,
+                                        ),
+                                    )
+                                    lastMessage = msg.ifBlank { "Logged in." }
+                                    ui.success(lastMessage)
                                 } catch (_: CancellationException) {
                                     // ignore
                                 } finally {
