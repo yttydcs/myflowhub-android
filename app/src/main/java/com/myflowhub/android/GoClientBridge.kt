@@ -65,9 +65,21 @@ class GoClientBridge {
 
     fun lastError(): String = (getLastErrorMethod.invoke(null) as? String) ?: ""
 
-    fun register(deviceId: String): String = (registerMethod.invoke(null, deviceId) as? String) ?: "{}"
+    fun register(deviceId: String): String {
+        val result = registerMethod.invoke(null, deviceId) as? String
+        if (result == null) {
+            throw IllegalStateException("Go Register returned null")
+        }
+        return result
+    }
 
-    fun login(deviceId: String, nodeId: String): String = (loginMethod.invoke(null, deviceId, nodeId) as? String) ?: "{}"
+    fun login(deviceId: String, nodeId: String): String {
+        val result = loginMethod.invoke(null, deviceId, nodeId) as? String
+        if (result == null) {
+            throw IllegalStateException("Go Login returned null")
+        }
+        return result
+    }
 
     fun listNodes(sourceId: String, targetId: String): String =
         (listNodesMethod.invoke(null, sourceId, targetId) as? String) ?: "{}"

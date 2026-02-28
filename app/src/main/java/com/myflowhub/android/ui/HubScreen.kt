@@ -118,7 +118,7 @@ fun HubScreen(
                     value = cfg.selfId,
                     onValueChange = { onCfgChange(cfg.copy(selfId = it)) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Device ID (SelfID)") },
+                    label = { Text("Hub SelfID (-hub)") },
                     singleLine = true,
                 )
             }
@@ -140,6 +140,23 @@ fun HubScreen(
                                 ui.info("Listen addr 不能为空，例如 :9000")
                                 return@FilledTonalButton
                             }
+                            val currentSelfId = cfg.selfId.trim()
+                            if (currentSelfId.isBlank()) {
+                                ui.info("Hub SelfID 不能为空（建议以 -hub 结尾）")
+                                return@FilledTonalButton
+                            }
+                            val normalizedSelfId = when {
+                                currentSelfId.endsWith("-hub") -> currentSelfId
+                                currentSelfId.endsWith("-ui") -> currentSelfId.removeSuffix("-ui") + "-hub"
+                                else -> "${currentSelfId}-hub"
+                            }
+                            val effectiveCfg = if (normalizedSelfId != currentSelfId) {
+                                onCfgChange(cfg.copy(selfId = normalizedSelfId))
+                                ui.info("已自动修正 Hub SelfID：$normalizedSelfId")
+                                cfg.copy(selfId = normalizedSelfId)
+                            } else {
+                                cfg
+                            }
                             opJob?.cancel()
                             val previousError = state.lastError
                             busy = true
@@ -148,7 +165,7 @@ fun HubScreen(
                                 val localJob = kotlinx.coroutines.currentCoroutineContext()[Job]
                                 try {
                                     try {
-                                        startHubService(context, cfg)
+                                        startHubService(context, effectiveCfg)
                                     } catch (t: Throwable) {
                                         ui.error("启动失败：${t.message ?: t}")
                                         return@launch
