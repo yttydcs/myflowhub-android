@@ -52,6 +52,7 @@ private enum class AppTab(val label: String) {
     Login("Login"),
     Hub("Hub"),
     Devices("Devices"),
+    VarStore("VarStore"),
     Logs("Logs"),
     Protocols("Protocols"),
 }
@@ -172,6 +173,14 @@ fun AppRoot() {
             )
 
             AppTab.Devices -> DevicesScreen(
+                modifier = contentModifier,
+                go = go,
+                goError = goError,
+                cfg = clientCfg,
+                ui = ui,
+            )
+
+            AppTab.VarStore -> VarStoreScreen(
                 modifier = contentModifier,
                 go = go,
                 goError = goError,

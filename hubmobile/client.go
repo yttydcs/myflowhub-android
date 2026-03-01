@@ -78,6 +78,9 @@ func onUnmatchedFrame(hdr core.IHeader, payload []byte) {
 		"preview", string(preview),
 		"truncated", truncated,
 	)
+
+	// Capture lightweight notify events for UI auto-update (VarStore only).
+	captureVarStoreUnmatchedFrame(hdr, payload)
 }
 
 func onClientError(err error) {

@@ -25,6 +25,66 @@ class GoClientBridge {
 
     private val logsPullMethod = GoReflect.method(cls, "LogsPull", String::class.java, String::class.java)
 
+    private val varStoreListMethod = GoReflect.method(
+        cls,
+        "VarStoreList",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val varStoreGetMethod = GoReflect.method(
+        cls,
+        "VarStoreGet",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val varStoreSetMethod = GoReflect.method(
+        cls,
+        "VarStoreSet",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val varStoreRevokeMethod = GoReflect.method(
+        cls,
+        "VarStoreRevoke",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val varStoreSubscribeMethod = GoReflect.method(
+        cls,
+        "VarStoreSubscribe",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val varStoreUnsubscribeMethod = GoReflect.method(
+        cls,
+        "VarStoreUnsubscribe",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+
+    private val varStoreEventsPullMethod = GoReflect.method(
+        cls,
+        "VarStoreEventsPull",
+        String::class.java,
+        String::class.java,
+    )
+
     private val sendAndAwaitMethod = GoReflect.method(
         cls,
         "SendAndAwait",
@@ -101,6 +161,65 @@ class GoClientBridge {
 
     fun logsPull(cursor: String, limit: String): String =
         (logsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
+
+    fun varStoreList(sourceId: String, targetId: String, owner: String): String {
+        val result = varStoreListMethod.invoke(null, sourceId, targetId, owner) as? String
+        if (result == null) {
+            throw IllegalStateException("Go VarStoreList returned null")
+        }
+        return result
+    }
+
+    fun varStoreGet(sourceId: String, targetId: String, name: String, owner: String): String {
+        val result = varStoreGetMethod.invoke(null, sourceId, targetId, name, owner) as? String
+        if (result == null) {
+            throw IllegalStateException("Go VarStoreGet returned null")
+        }
+        return result
+    }
+
+    fun varStoreSet(
+        sourceId: String,
+        targetId: String,
+        name: String,
+        value: String,
+        visibility: String,
+        type: String,
+        owner: String,
+    ): String {
+        val result = varStoreSetMethod.invoke(null, sourceId, targetId, name, value, visibility, type, owner) as? String
+        if (result == null) {
+            throw IllegalStateException("Go VarStoreSet returned null")
+        }
+        return result
+    }
+
+    fun varStoreRevoke(sourceId: String, targetId: String, name: String, owner: String): String {
+        val result = varStoreRevokeMethod.invoke(null, sourceId, targetId, name, owner) as? String
+        if (result == null) {
+            throw IllegalStateException("Go VarStoreRevoke returned null")
+        }
+        return result
+    }
+
+    fun varStoreSubscribe(sourceId: String, targetId: String, name: String, owner: String, subscriber: String): String {
+        val result = varStoreSubscribeMethod.invoke(null, sourceId, targetId, name, owner, subscriber) as? String
+        if (result == null) {
+            throw IllegalStateException("Go VarStoreSubscribe returned null")
+        }
+        return result
+    }
+
+    fun varStoreUnsubscribe(sourceId: String, targetId: String, name: String, owner: String, subscriber: String): String {
+        val result = varStoreUnsubscribeMethod.invoke(null, sourceId, targetId, name, owner, subscriber) as? String
+        if (result == null) {
+            throw IllegalStateException("Go VarStoreUnsubscribe returned null")
+        }
+        return result
+    }
+
+    fun varStoreEventsPull(cursor: String, limit: String): String =
+        (varStoreEventsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
 
     fun sendAndAwait(
         subProto: String,

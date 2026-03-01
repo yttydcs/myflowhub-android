@@ -2,6 +2,8 @@ package com.myflowhub.android
 
 import android.content.Context
 import java.util.UUID
+import org.json.JSONArray
+import org.json.JSONObject
 
 object Prefs {
     private const val PREFS = "hub_prefs"
@@ -19,6 +21,8 @@ object Prefs {
     private const val KEY_AUTH_NODE_ID = "auth_node_id"
     private const val KEY_AUTH_HUB_ID = "auth_hub_id"
     private const val KEY_AUTH_ROLE = "auth_role"
+
+    private const val KEY_VARSTORE_WATCH_LIST = "varstore_watch_list"
 
     data class IdentityMigration(
         val legacyId: String,
@@ -127,6 +131,11 @@ object Prefs {
         val role: String,
     )
 
+    data class VarStoreWatchKey(
+        val name: String,
+        val owner: Long,
+    )
+
     fun loadClient(context: Context): ClientConfig {
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val identity = ensureIdentity(context)
@@ -149,6 +158,45 @@ object Prefs {
             .putString(KEY_AUTH_HUB_ID, cfg.hubId)
             .putString(KEY_AUTH_ROLE, cfg.role)
             .apply()
+    }
+
+    fun loadVarStoreWatchList(context: Context): List<VarStoreWatchKey> {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = (sp.getString(KEY_VARSTORE_WATCH_LIST, "") ?: "").trim()
+        if (raw.isBlank()) return emptyList()
+
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val seen = hashSetOf<String>()
+        val out = mutableListOf<VarStoreWatchKey>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val name = obj.optString("name", "").trim()
+            val owner = obj.optLong("owner", 0)
+            if (name.isBlank() || owner <= 0) continue
+            val id = "${name}#${owner}"
+            if (!seen.add(id)) continue
+            out.add(VarStoreWatchKey(name = name, owner = owner))
+        }
+        out.sortWith(compareBy({ it.owner }, { it.name }))
+        return out
+    }
+
+    fun saveVarStoreWatchList(context: Context, keys: List<VarStoreWatchKey>) {
+        val seen = hashSetOf<String>()
+        val arr = JSONArray()
+        for (key in keys) {
+            val name = key.name.trim()
+            val owner = key.owner
+            if (name.isBlank() || owner <= 0) continue
+            val id = "${name}#${owner}"
+            if (!seen.add(id)) continue
+            val obj = JSONObject()
+            obj.put("name", name)
+            obj.put("owner", owner)
+            arr.put(obj)
+        }
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        sp.edit().putString(KEY_VARSTORE_WATCH_LIST, arr.toString()).apply()
     }
 }
 
