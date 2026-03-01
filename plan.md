@@ -1,119 +1,142 @@
-# MyFlowHub Android：分区块配色交换 + Devices 编辑器对齐 Win（Key/Value 列表）
+# MyFlowHub Android：新增 VarStore（对齐 Win：订阅 + 自动更新 + value 直显）
 
-分支：`fix/android-devices-editor`
+分支：`feat/android-varstore`
 
 ## 目标
 
-1) **分区块配色交换**
+1) **新增侧导航 Tab：VarStore**
 
-- 将“页面背景色”与“分区块 Card（前景块）背景色”对调：
-  - 页面背景：使用更浅的灰阶层次（当前分区块/容器的浅灰感）
-  - 分区块 Card：使用更白的底色（当前页面背景的白）
+- 宽屏（`NavigationRail`）与窄屏（`Drawer`）均新增入口。
+- 页面结构与 Win 端 VarPool（VarStore）尽量一致（My Variables / Watched Variables + 弹窗编辑）。
 
-2) **Devices 交互细节对齐 Win**
+2) **列表必须直接看到 value**
 
-- 左侧展开按钮使用**正方形**（非圆形），视觉更接近 Win 的树控件。
-- 节点行右侧 `Edit` 按钮始终**右对齐**（错误态出现 `Retry` 时也不挤占 Edit 的最右位置）。
-- `NodeDetails`：当 `node_info` 取不到或为空时给出更明确的原因/提示（尤其 UI node）。
+- My Variables / Watched Variables 的卡片内直接展示 value，不依赖点进详情。
+- 采用 `list -> get` 批量拉取，并做并发限流避免卡顿。
 
-3) **Devices 编辑界面对齐 Win（Key/Value 列表）**
+3) **订阅 + 自动更新**
 
-- 打开编辑弹窗后直接展示 `key/value` 列表，value 可直接编辑并保存。
-- 移除顶部 `List/Get/Set` 形式按钮（改为自动加载 + 行内保存）。
+- 支持 `subscribe/unsubscribe`，并展示订阅状态（subKnown/subscribed）。
+- 自动消费服务端通知（`var_changed/var_deleted/notify_set/notify_revoke` 等）更新 UI。
+
+4) **提前限制变量名**
+
+- 在 Android 端提前校验：`^[A-Za-z0-9_]+$`，不合法直接提示，不发请求。
 
 ## 当前状态
 
-- 页面中使用 `Card` 做分区块，但“分区块色阶”和“页面背景”层次不符合预期（需要对调）。
-- Devices：
-  - 展开按钮使用默认 Button 形状（在方形尺寸下会呈现圆形/胶囊感）。
-  - 错误节点出现 `Retry` 时会把 `Edit` 按钮挤出最右对齐位置。
-  - 编辑弹窗仍是 `List/Get/Set` 模式，不符合 Win 期望的 key/value 列表编辑。
+- Android 端已有 `Protocols` 通用控制台，可手工 `SendAndAwait(subProto=3)`，但缺少：
+  - “对齐 Win 的 VarStore 专用 UI”
+  - “列表直显 value”
+  - “订阅 + 自动更新”
+  - “watch list 持久化”
 
 ## 约束与约定
 
-- 仅在本 worktree 分支实现：`fix/android-devices-editor`。
-- 提交信息使用中文（允许 `fix:` 前缀为英文）。
-- 不修改协议与服务端行为；仅做 Android UI 与客户端交互优化。
-- 性能约束：Config 编辑不允许“打开就对所有 key 做全量 N+1 请求”导致卡顿；采用 Lazy/按需加载并限制并发。
+- 仅在本分支实现：`feat/android-varstore`。
+- 提交信息使用中文（允许 `feat:` 前缀为英文）。
+- Kotlin 与 Go 之间继续使用“JSON 字符串 API”，保持 gomobile 兼容稳定。
+- 性能约束：
+  - 禁止全量 N+1 造成 UI 卡顿：`list -> get` 必须并发限流。
+  - 自动更新不得高频自旋：空拉取需退避（delay/backoff）。
+- 交互约束：
+  - 每个动作必须有明确提示：成功/失败都要 snackbar（复用 `UiNotifier`）。
+  - 新操作应可打断旧操作（避免“提示延迟且无法中断”）。
 
 ## 任务清单（Checklist）
 
-### Task 1：分区块配色交换（Card vs 页面背景）
+### Task ANDVS-1：Go（hubmobile）封装 VarStore 请求 API（list/get/set/revoke/subscribe/unsubscribe）
 
 - **目标**
-  - 页面背景与 Card 背景对调，让分区块更“白”，背景更“浅灰”。
+  - 提供 VarStore 的专用导出函数，统一超时/错误处理，便于 Kotlin 直接调用。
+  - `unsubscribe` 的 await 目标 action 按服务端行为使用 `subscribe_resp`（与 Win 端一致）。
+- **涉及文件**
+  - `hubmobile/varstore.go`（新增）
+  - `hubmobile/client.go`（复用/补齐公共 helper，如有必要）
+- **验收条件**
+  - Kotlin 可调用：`VarStoreList/Get/Set/Revoke/Subscribe/Unsubscribe`，失败时抛出明确错误信息。
+  - 输入校验：source/target/owner/subscriber/visibility 基本合法性；服务端错误能透传到 UI。
+- **测试点**
+  - `cd hubmobile; $env:GOWORK='off'; go test ./...`
+- **回滚点**
+  - revert 本任务提交。
+
+### Task ANDVS-2：Go（hubmobile）新增 VarStore 事件缓冲 + Pull API（自动更新基座）
+
+- **目标**
+  - 在 `onUnmatchedFrame` 中识别 `SubProtoVarStore=3` 的通知帧，解析并写入 ring-buffer。
+  - 提供 `VarStoreEventsPull(cursor,limit)` 类似 `LogsPull` 的分页拉取接口。
+- **涉及文件**
+  - `hubmobile/client.go`
+  - `hubmobile/varstore_events.go`（新增：ring-buffer + pull）
+- **验收条件**
+  - 触发 varstore 变更后，`VarStoreEventsPull` 能拉到事件（至少包含 action + data 原文）。
+- **测试点**
+  - 单测：ring-buffer pull 的 cursor/limit 边界、覆盖写入、空结果处理。
+- **回滚点**
+  - revert 本任务提交。
+
+### Task ANDVS-3：Kotlin：补齐 Bridge + Prefs（watch list 持久化）
+
+- **目标**
+  - `GoClientBridge` 增加反射方法：VarStore* 与 VarStoreEventsPull。
+  - `Prefs` 增加 watch list 的 load/save（仅存 `{name, owner}` 列表）。
+- **涉及文件**
+  - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
+  - `app/src/main/java/com/myflowhub/android/Prefs.kt`
+- **验收条件**
+  - watch list 重启后仍可恢复；Bridge 调用方法名稳定。
+- **测试点**
+  - 手动：添加 watch → 重启 app → watch 仍在。
+- **回滚点**
+  - revert 本任务提交。
+
+### Task ANDVS-4：Compose：新增 VarStore 页面（对齐 Win）+ 订阅 + 自动更新 + 取消机制
+
+- **目标**
+  - `AppRoot` 新增 `VarStore` Tab，并实现 `VarStoreScreen`：
+    - Status（TargetID、LastFrame、watch 数量等）
+    - My Variables / Watched Variables 卡片：直显 value + 操作按钮（Refresh/Edit/Revoke/Remove/Subscribe）
+    - Add/Edit 弹窗：按 Win 结构（可直接编辑 value/visibility/type）
+  - 提前变量名校验：`^[A-Za-z0-9_]+$`
+  - 自动更新：后台协程循环 `VarStoreEventsPull` → 更新 store → 刷新 UI
+  - 交互打断：新动作发起时取消旧动作（避免 snackbar 与 busy 状态滞留）
 - **涉及文件**
   - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/DevicesScreen.kt`
+  - `app/src/main/java/com/myflowhub/android/ui/VarStoreScreen.kt`（新增）
 - **验收条件**
-  - 所有页面分区块 Card 的底色明显更白；页面背景为轻微灰阶层次白。
+  - Connect+Login 后进入 VarStore：
+    - Refresh 可看到列表，且卡片内直接看到 value。
+    - subscribe/unsubscribe 可用，状态可见（Subscribed badge / 按钮文案变化）。
+    - 另一端 set/revoke 后，本端无需手动刷新即可看到变更/删除。
+  - 输入非法 name 会被前置拦截并提示。
 - **测试点**
-  - 深浅色模式下均保持可读性与对比度。
+  - 多变量时：滚动流畅；并发 get 受控；不会一次性卡住 UI。
+  - 连续快速点击不同操作：旧操作会被取消，提示不会长时间延迟。
 - **回滚点**
   - revert 本任务提交。
 
-### Task 2：Devices 节点行样式细节（方形展开 + Edit 右对齐）
-
-- **目标**
-  - 展开按钮为正方形（非圆形）。
-  - `Edit` 始终最右对齐；`Retry` 出现时排在 `Edit` 左侧。
-- **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/DevicesScreen.kt`
-- **验收条件**
-  - 任意节点行：`Edit` 的右边界对齐 Card 内容区右边界。
-  - 展开按钮视觉为方形按钮。
-- **回滚点**
-  - revert 本任务提交。
-
-### Task 3：NodeDetails 信息增强（UI node 取不到时更明确）
-
-- **目标**
-  - `node_info` 失败/为空时，弹窗内显示更明确的原因（例如“节点不支持 node_info”/“not found”等）。
-  - 对于 UI node（`nodeId == cfg.nodeId`）提供最小 fallback 信息展示（deviceId/hubId/role 等），避免“空白无从判断”。
-- **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/DevicesScreen.kt`
-- **验收条件**
-  - UI node 点击详情时，即使取不到 node_info，也能看到明确提示与基础身份信息。
-- **回滚点**
-  - revert 本任务提交。
-
-### Task 4：Devices 编辑弹窗改为 Key/Value 列表（行内保存）
-
-- **目标**
-  - 打开编辑弹窗后自动加载 config keys，并以列表形式展示 key/value。
-  - value 可直接编辑；每行提供保存入口（行内 Save）。
-  - values 按需加载（Lazy）并限制并发，避免打开就全量请求。
-- **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/DevicesScreen.kt`
-- **验收条件**
-  - 弹窗打开后无需点击 List/Get/Set；直接可编辑并保存。
-  - 对 key 数量较多的节点，仍保持滚动流畅；不会一次性触发大量请求卡 UI。
-- **测试点**
-  - Key 数量多时：滚动时逐行加载 value；错误时行内提示可重试；保存成功/失败 snackbar 明确。
-- **回滚点**
-  - revert 本任务提交。
-
-### Task 5：构建与冒烟验证
+### Task ANDVS-5：构建与冒烟验证
 
 - **构建**
-  - `./gradlew :app:assembleDebug`
+  - 生成 AAR（如需更新）：`./scripts/build_aar.ps1`
+  - 构建 APK：`./gradlew :app:assembleDebug`
 - **冒烟步骤**
-  1. 对比配色：页面背景与 Card 色阶符合“交换”预期。
-  2. Devices：展开按钮方形；`Edit` 始终右对齐；错误节点仍可 Retry。
-  3. Devices：Edit 弹窗展示 key/value 列表，可编辑并保存。
-  4. Devices：点击 UI node 详情时，有明确提示或 fallback 信息。
+  1. Connect + Register/Login（已有流程）拿到 nodeId/hubId。
+  2. VarStore：Refresh → My Variables 出现并直显 value。
+  3. Add/Edit/Revoke：成功/失败均有 snackbar。
+  4. Subscribe：在另一端触发 set/revoke，本端自动更新。
 - **通过标准**
-  - 以上步骤无崩溃，操作反馈及时。
+  - 无崩溃；提示及时；自动更新生效。
 
-### Task 6：Code Review + 归档
+### Task ANDVS-6：Code Review + 归档
 
 - 进行 3.3 Code Review（逐项结论：通过/不通过）。
-- 创建 `docs/change/YYYY-MM-DD_android-devices-editor.md`，映射 Task 1-5，包含验证与回滚方案。
+- 创建 `docs/change/YYYY-MM-DD_android-varstore.md`，映射 ANDVS-1~ANDVS-5，包含验证与回滚方案。
 
 ## 风险与注意事项
 
-- Config values 若数量很大：需要 Lazy 加载 + 并发限制，否则会产生 N+1 性能风险。
-- 部分节点（例如 UI node）可能不实现 management/node_info：需要明确提示而不是“空白”。
+- `list` 仅返回 names，为满足“直显 value”必然产生 `list -> get*N`：必须并发限流，并在 UI 侧可取消。
+- 变量名规则与用户期望（如 `status.flag`）可能不一致：已按你确认的“提前限制”策略处理。
+- 自动更新依赖 unmatched frame 采集：需保证不对所有协议做重度解析；仅 varstore 且输出受 ring-buffer 上限约束。
 
