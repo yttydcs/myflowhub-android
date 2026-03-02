@@ -1,88 +1,64 @@
-# MyFlowHub Android：侧边栏/抽屉增加图标 + 抽屉圆角矩形化
-
-分支：`feat/android-nav-icons`
+# Android：Debug Action 直接下载 APK（debug-latest）
 
 ## 目标
-
-1) **侧边菜单增加图标（Outlined）**
-- 宽屏 `NavigationRail`：每个 Tab 显示 Outlined 图标 + 文本。
-- 窄屏 `Drawer`：每个 Tab 显示 Outlined 图标 + 文本。
-
-2) **抽屉外观从“偏圆润”改为“圆角矩形”**
-- 点击顶部菜单按钮弹出的 `ModalDrawerSheet`：圆角半径降低（更接近圆角矩形）。
-- 抽屉内 `NavigationDrawerItem`：同步降低圆角，保持一致观感。
+- 在 **GitHub Actions 页面**中，针对 **main 分支 push** 触发的 debug 构建，提供一个“直接下载 `.apk`”的入口（不再需要先下载 artifact 的 `.zip`）。
+- 采用固定 Release/Tag：`debug-latest`，每次 main push 覆盖更新同一个 Release 的 APK 资产。
 
 ## 当前状态
+- 现有 `.github/workflows/ci.yml` 会在 debug 构建后使用 `actions/upload-artifact` 上传 `app-debug.apk`。
+- GitHub Artifact 在网页端下载会被打包为 `.zip`（不可避免），导致无法“直接下载 apk”。
 
-- 宽屏 `NavigationRailItem` 目前用首字母占位（`Text(entry.label.take(1))`），没有图标。
-- 窄屏抽屉 `NavigationDrawerItem` 目前没有图标，且整体圆角偏大（默认 shape）。
-
-## 已确认的交互/视觉决策
-
-- 图标风格：`Outlined`
-- Tab → 图标映射（按 Win 语义取近似）：
-  - Login：`AccountCircle`
-  - Hub：`Hub`
-  - Devices：`Devices`
-  - VarStore：`Storage`
-  - Logs：`Article`（或 `ListAlt`，以可用性优先）
-  - Protocols：`Code`
-- 抽屉圆角调整：**面板 + 条目**都一起改小圆角（更一致）。
-
-## 约束与约定
-
-- 仅在本分支/独占 worktree 实现；主 worktree（`repo/MyFlowHub-Android`）仅用于最终合并与推送。
-- 提交信息使用中文（允许 `feat:`/`fix:` 前缀为英文）。
-- 尽量不引入额外依赖；若所需 Outlined 图标不在当前依赖中，则补充 `material-icons-extended`（代价：APK 体积略增）。
+## 方案概述
+- 在 `ci.yml` 中仅对 `refs/heads/main` 的 push：
+  - 构建完成后创建/更新 GitHub Release：`debug-latest`（pre-release）。
+  - 上传/覆盖 `myflowhub-debug.apk` 资产（使用 `gh release upload --clobber`）。
+  - 在本次 run 的 Summary 输出下载直链：`.../releases/download/debug-latest/myflowhub-debug.apk`。
+- 为避免循环触发：`ci.yml` 需要忽略所有 tag push（或至少忽略 `debug-latest`）。
 
 ## 任务清单（Checklist）
 
-### Task NAVI-1：为 Tab 增加 Outlined 图标（Rail + Drawer）
+### T1. 调整 workflow 触发条件（避免 tag 循环）
+- 目标：确保 workflow 不会因为创建/更新 `debug-latest` tag/release 而被再次触发。
+- 涉及文件：
+  - `.github/workflows/ci.yml`
+- 验收：
+  - `push tag debug-latest` 不会触发 `ci.yml`（或 workflow 内部明确跳过）。
 
-- **目标**
-  - `AppTab` 承载 `label + icon`，成为单一事实来源。
-  - 宽屏 `NavigationRailItem` 显示 `Icon(imageVector = icon)`。
-  - 窄屏 `NavigationDrawerItem` 显示同一套图标。
-- **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-  - （可选）`app/build.gradle.kts`（如需补齐 icons 依赖）
-- **验收条件**
-  - 所有 Tab 均显示对应 Outlined 图标；无占位首字母。
-  - 编译通过。
-- **测试点**
-  - `./gradlew :app:compileDebugKotlin`
-- **回滚点**
-  - revert 本任务提交。
+### T2. 增加发布 debug release 的权限与并发控制
+- 目标：在 main push 场景下允许写入 Release，并避免并发覆盖冲突。
+- 涉及文件：
+  - `.github/workflows/ci.yml`
+- 验收：
+  - workflow 拥有 `contents: write`（仅用于发布步骤）。
+  - 同一时间只保留最新一次 main push 进行发布（旧的被取消）。
 
-### Task NAVI-2：抽屉与条目圆角矩形化（降低圆角半径）
+### T3. 发布/覆盖 `debug-latest` Release 的 APK 资产
+- 目标：Release 中始终存在最新的 `myflowhub-debug.apk`，可直接下载。
+- 涉及文件：
+  - `.github/workflows/ci.yml`
+- 设计要点：
+  - 使用 `gh` CLI：`gh release view/create/upload --clobber`
+  - 资产命名固定：`myflowhub-debug.apk`
+- 验收：
+  - main push 后，仓库 Releases 中 `debug-latest` 可见且包含 `myflowhub-debug.apk`。
 
-- **目标**
-  - `ModalDrawerSheet` 设置低圆角 `drawerShape`。
-  - `NavigationDrawerItem` 设置同一套低圆角 `shape`。
-- **涉及文件**
-  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-- **验收条件**
-  - 抽屉面板与条目圆角明显小于默认值，整体更“方”，但仍保留圆角。
-- **测试点**
-  - 手动：窄屏打开抽屉观察圆角变化与选中态背景是否正常。
-- **回滚点**
-  - revert 本任务提交。
+### T4. Actions Summary 输出“直接下载链接”
+- 目标：在 Actions run 页面内可一键点击下载。
+- 涉及文件：
+  - `.github/workflows/ci.yml`
+- 验收：
+  - run 的 Summary 包含直链，点击直接下载 `.apk`（非 zip）。
 
-### Task NAVI-3：构建与冒烟验证
-
-- **构建**
-  - `./gradlew :app:assembleDebug`
-- **冒烟**
-  - 宽屏（模拟/真机横屏或大屏）：`NavigationRail` 图标 + 文本正常。
-  - 窄屏：打开 Drawer，图标正常，圆角矩形化生效。
-
-### Task NAVI-4：Code Review + 归档
-
-- 进行 3.3 Code Review（逐项结论：通过/不通过）。
-- 创建 `docs/change/YYYY-MM-DD_android-nav-icons.md`（映射 NAVI-1~NAVI-3，包含验证与回滚方案）。
+### T5. 验证与回滚预案
+- 验证点：
+  - main push 触发后：Release 更新成功、Summary 链接可用、原有 artifact 仍可用（可选保留）。
+  - 非 main/PR：不发布 debug-latest release。
+- 回滚点：
+  - revert 该次 workflow 修改；
+  - 必要时删除 `debug-latest` Release（以及同名 tag，如果由 workflow 创建）。
 
 ## 风险与注意事项
-
-- 若 `Hub/Devices/Storage/Article/Code` 等 Outlined 图标不在当前 icons 依赖中，需要补充 `material-icons-extended`；会增加 APK 体积，但实现最稳定。
-- 若某个图标在当前版本不可用，按“可编译优先”替换为语义接近的 Outlined 图标，并在 `docs/change` 中说明。
+- GitHub Artifact 网页下载固定 zip：只能通过 Release/外链解决“直接下载 apk”诉求。
+- workflow 创建 tag/release 可能导致 push(tag) 再触发：必须增加 tags-ignore 或条件跳过。
+- 并发 push main 可能导致 release 资产互相覆盖：需加 `concurrency`。
 

@@ -5,7 +5,7 @@ on:
     branches:
       - "**"
     tags-ignore:
-      - "v*.*.*"
+      - "**"
   pull_request:
 
 permissions:
@@ -81,4 +81,68 @@ jobs:
           path: |
             repo/MyFlowHub-Android/app/build/outputs/apk/debug/app-debug.apk
             repo/MyFlowHub-Android/app/libs/myflowhub.aar
+
+  publish-debug-latest:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-debug
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: myflowhub-android-debug-latest
+      cancel-in-progress: true
+    steps:
+      - name: Download artifacts (debug)
+        uses: actions/download-artifact@v4
+        with:
+          name: myflowhub-android-debug
+          path: artifacts
+
+      - name: Publish debug-latest release (APK)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repo="${GITHUB_REPOSITORY}"
+          tag="debug-latest"
+          sha="${GITHUB_SHA}"
+
+          apk_path="artifacts/repo/MyFlowHub-Android/app/build/outputs/apk/debug/app-debug.apk"
+          if [[ ! -f "${apk_path}" ]]; then
+            echo "找不到 APK：${apk_path}" >&2
+            echo "artifacts 目录结构：" >&2
+            ls -R artifacts >&2
+            exit 1
+          fi
+
+          # 让 debug-latest tag 永远指向最新 main commit（强制更新）
+          if gh api "repos/${repo}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${repo}/git/refs/tags/${tag}" -f sha="${sha}" -f force=true >/dev/null
+          else
+            gh api --method POST "repos/${repo}/git/refs" -f ref="refs/tags/${tag}" -f sha="${sha}" >/dev/null
+          fi
+
+          release_title="Debug (latest)"
+          run_url="${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}"
+          release_notes=$(printf "自动构建的 Debug 版本（main）\n\ncommit=%s\nrun=%s\n" "${sha}" "${run_url}")
+
+          if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
+            gh release edit "${tag}" --repo "${repo}" --title "${release_title}" --notes "${release_notes}" --prerelease
+          else
+            gh release create "${tag}" --repo "${repo}" --title "${release_title}" --notes "${release_notes}" --prerelease
+          fi
+
+          gh release upload "${tag}" "${apk_path}#myflowhub-debug.apk" --repo "${repo}" --clobber
+
+          download_url="https://github.com/${repo}/releases/download/${tag}/myflowhub-debug.apk"
+          release_url="https://github.com/${repo}/releases/tag/${tag}"
+          {
+            echo "## Debug APK"
+            echo ""
+            echo "- Release: ${release_url}"
+            echo "- Direct download: ${download_url}"
+            echo "- Commit: \`${sha}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
