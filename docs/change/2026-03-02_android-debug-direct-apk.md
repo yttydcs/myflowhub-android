@@ -16,7 +16,7 @@
   - 新增 `publish-debug-latest` job（仅 `push` 到 `refs/heads/main` 执行）：
     - 从 `build-debug` 下载 debug 产物 artifact。
     - 使用 `gh api` 强制更新 `debug-latest` tag 指向 `GITHUB_SHA`。
-    - 创建或更新 `debug-latest` Release（pre-release），并上传/覆盖 `myflowhub-debug.apk`。
+    - 创建或更新 `debug-latest` Release（pre-release），并上传/覆盖 `app-debug.apk`。
     - 写入 Actions run Summary：包含 Release 页面与 `.apk` 直链下载地址。
 
 ### 新增
@@ -25,7 +25,7 @@
 ## plan.md 任务映射
 - T1：调整 workflow 触发条件（忽略 tag push）
 - T2：发布权限与并发控制（job-level `contents: write` + `concurrency`）
-- T3：发布/覆盖 Release 资产（`myflowhub-debug.apk`）
+- T3：发布/覆盖 Release 资产（`app-debug.apk`）
 - T4：Summary 输出直链
 - T5：验证与回滚预案（见下）
 
@@ -53,9 +53,9 @@
 验证步骤（合并到 `main` 后）：
 1. push 任意提交到 `main`，触发 `ci` workflow。
 2. 在该 run 页面查看 Summary：
-   - 存在 `Direct download` 链接，点击后直接下载 `myflowhub-debug.apk`（非 zip）。
+   - 存在 `Direct download` 链接，点击后直接下载 `app-debug.apk`（非 zip）。
 3. 打开 Release：`debug-latest`：
-   - 能看到并下载最新的 `myflowhub-debug.apk`。
+   - 能看到并下载最新的 `app-debug.apk`。
    - Release notes 中的 `commit=` 与本次构建 commit 一致。
 
 ## 潜在影响与回滚方案

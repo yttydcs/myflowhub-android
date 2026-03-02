@@ -169,28 +169,10 @@ jobs:
             gh release create "${tag}" --repo "${repo}" --title "${release_title}" --notes "${release_notes}" --prerelease
           fi
 
-          # GitHub Release 的 download URL 使用「asset name」而非 label。
-          # 为确保直链稳定（/releases/download/.../myflowhub-debug.apk），需要上传一个文件名就是该名字的文件。
-          tmp_assets_dir="$(mktemp -d)"
-          apk_upload_path="${tmp_assets_dir}/myflowhub-debug.apk"
-          aar_upload_path="${tmp_assets_dir}/myflowhub.aar"
-          cp -f "${apk_path}" "${apk_upload_path}"
-          cp -f "${aar_path}" "${aar_upload_path}"
+          gh release upload "${tag}" "${apk_path}" --repo "${repo}" --clobber
+          gh release upload "${tag}" "${aar_path}" --repo "${repo}" --clobber
 
-          # 清理历史遗留的 asset name（此前曾上传为 app-debug.apk，导致 Summary 直链 404）
-          mapfile -t legacy_asset_ids < <(gh api "repos/${repo}/releases/tags/${tag}" --jq '.assets[] | select(.name=="app-debug.apk") | .id' 2>/dev/null || true)
-          if (( ${#legacy_asset_ids[@]} > 0 )); then
-            for asset_id in "${legacy_asset_ids[@]}"; do
-              if [[ -n "${asset_id}" ]]; then
-                gh api --method DELETE "repos/${repo}/releases/assets/${asset_id}" >/dev/null 2>&1 || true
-              fi
-            done
-          fi
-
-          gh release upload "${tag}" "${apk_upload_path}" --repo "${repo}" --clobber
-          gh release upload "${tag}" "${aar_upload_path}" --repo "${repo}" --clobber
-
-          apk_url="https://github.com/${repo}/releases/download/${tag}/myflowhub-debug.apk"
+          apk_url="https://github.com/${repo}/releases/download/${tag}/app-debug.apk"
           aar_url="https://github.com/${repo}/releases/download/${tag}/myflowhub.aar"
           release_url="https://github.com/${repo}/releases/tag/${tag}"
           {

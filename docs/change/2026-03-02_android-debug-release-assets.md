@@ -16,7 +16,7 @@
 
 - 修复发布脚本的产物定位方式，使其与 artifact 解压结构一致且更稳健。
 - 在 `debug-latest` Release 中同时发布：
-  - `myflowhub-debug.apk`
+  - `app-debug.apk`
   - `myflowhub.aar`
 - Actions Summary 同时输出 APK/AAR 的直链下载地址。
 
@@ -28,7 +28,7 @@
   - `publish-debug-latest`：
     - 通过 `find artifacts` 定位 `app-debug.apk` 与 `myflowhub.aar`，并使用“路径后缀匹配 + 必须且仅能命中 1 个”进行校验。
     - 发布/覆盖 Release assets（`--clobber`）：
-      - `myflowhub-debug.apk`
+      - `app-debug.apk`
       - `myflowhub.aar`
     - Summary 输出两条直链（APK/AAR）。
 
@@ -53,13 +53,12 @@
 保持稳定命名以保证直链稳定：
 
 - APK：`myflowhub-debug.apk`
+- APK：`app-debug.apk`
 - AAR：`myflowhub.aar`
 
 注意：
 
-- GitHub Release 的 download URL 使用 **asset name**（而不是 label）。
-- `gh release upload path/to/app-debug.apk#myflowhub-debug.apk` 只会设置 label，download URL 仍然是 `.../app-debug.apk`，会导致 Summary 的 `.../myflowhub-debug.apk` 直链 404。
-- 因此发布时会将产物复制为固定文件名再上传，并清理历史遗留的 `app-debug.apk` asset（如存在）。
+- GitHub Release 的 download URL 使用 **asset name**，因此 Summary 直链使用 `app-debug.apk`（与构建产物文件名一致）。
 
 ## 测试与验证方式 / 结果
 
@@ -70,7 +69,7 @@
 1. push 任意提交到 `main`，触发 `ci` workflow。
 2. `publish-debug-latest` job 成功。
 3. 打开 `debug-latest` Release，确认 assets 同时存在并可下载：
-   - `myflowhub-debug.apk`
+   - `app-debug.apk`
    - `myflowhub.aar`
 4. 在 Actions run Summary 中确认存在两条直链：
    - APK 直链

@@ -15,10 +15,10 @@
 - 在 `ci.yml` 中仅对 `refs/heads/main` 的 push：
   - 构建完成后创建/更新 GitHub Release：`debug-latest`（pre-release）。
   - 上传/覆盖 Release 资产（使用 `gh release upload --clobber`）：
-    - `myflowhub-debug.apk`
+    - `app-debug.apk`
     - `myflowhub.aar`
   - 在本次 run 的 Summary 输出下载直链：
-    - `.../releases/download/debug-latest/myflowhub-debug.apk`
+    - `.../releases/download/debug-latest/app-debug.apk`
     - `.../releases/download/debug-latest/myflowhub.aar`
 - 为避免循环触发：`ci.yml` 需要忽略所有 tag push（或至少忽略 `debug-latest`）。
 
@@ -51,9 +51,9 @@
 - 设计要点：
   - 使用 `gh` CLI：`gh release view/create/upload --clobber`
   - 资产命名固定：
-    - `myflowhub-debug.apk`
+    - `app-debug.apk`
     - `myflowhub.aar`
-  - 注意：GitHub Release 的 download URL 使用 **asset name**；`gh release upload file#label` 只会设置 label，不会改变 download URL。
+  - 注意：GitHub Release 的 download URL 使用 **asset name**；因此 Summary 直链使用 `app-debug.apk`（与构建产物文件名保持一致）。
   - **不要硬编码依赖 upload-artifact 的目录根**：基于下载后的 `artifacts/` 目录结构定位 APK/AAR（或将 download 目标目录对齐到预期根目录）。
 - 验收：
   - main push 后，仓库 Releases 中 `debug-latest` 可见且包含：
