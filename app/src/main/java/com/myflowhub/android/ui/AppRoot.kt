@@ -6,8 +6,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.myflowhub.android.GoClientBridge
@@ -48,13 +56,13 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class AppTab(val label: String) {
-    Login("Login"),
-    Hub("Hub"),
-    Devices("Devices"),
-    VarStore("VarStore"),
-    Logs("Logs"),
-    Protocols("Protocols"),
+private enum class AppTab(val label: String, val icon: ImageVector) {
+    Login("Login", Icons.Outlined.AccountCircle),
+    Hub("Hub", Icons.Outlined.Hub),
+    Devices("Devices", Icons.Outlined.Devices),
+    VarStore("VarStore", Icons.Outlined.Storage),
+    Logs("Logs", Icons.AutoMirrored.Outlined.Article),
+    Protocols("Protocols", Icons.Outlined.Code),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -208,6 +216,9 @@ fun AppRoot() {
         // 背景（内容区）使用轻微灰阶，分区块 Card 使用更白的 surface，实现“前景块/背景”层次交换。
         val chromeContainerColor = MaterialTheme.colorScheme.surface
         val contentContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+        val drawerCorner = 12.dp
+        val drawerShape = RoundedCornerShape(topEnd = drawerCorner, bottomEnd = drawerCorner)
+        val drawerItemShape = RoundedCornerShape(drawerCorner)
 
         if (isWide) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -216,7 +227,7 @@ fun AppRoot() {
                         NavigationRailItem(
                             selected = tab == entry.name,
                             onClick = { tab = entry.name },
-                            icon = { Text(entry.label.take(1)) },
+                            icon = { Icon(imageVector = entry.icon, contentDescription = entry.label) },
                             label = { Text(entry.label) },
                         )
                     }
@@ -235,18 +246,20 @@ fun AppRoot() {
             ModalNavigationDrawer(
                 drawerState = drawerState,
                 drawerContent = {
-                    ModalDrawerSheet(drawerContainerColor = chromeContainerColor) {
+                    ModalDrawerSheet(drawerContainerColor = chromeContainerColor, drawerShape = drawerShape) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text("MyFlowHub")
                         }
                         AppTab.entries.forEach { entry ->
                             NavigationDrawerItem(
                                 label = { Text(entry.label) },
+                                icon = { Icon(imageVector = entry.icon, contentDescription = entry.label) },
                                 selected = tab == entry.name,
                                 onClick = {
                                     tab = entry.name
                                     scope.launch { drawerState.close() }
                                 },
+                                shape = drawerItemShape,
                             )
                         }
                     }
