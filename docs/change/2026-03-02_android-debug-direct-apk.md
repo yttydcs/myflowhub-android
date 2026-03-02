@@ -15,7 +15,7 @@
   - 忽略所有 tag push，避免 `debug-latest` tag 更新造成 workflow 循环触发。
   - 新增 `publish-debug-latest` job（仅 `push` 到 `refs/heads/main` 执行）：
     - 从 `build-debug` 下载 debug 产物 artifact。
-    - 使用 `gh api` 强制更新 `debug-latest` tag 指向 `GITHUB_SHA`。
+    - 使用 `curl` 调 GitHub REST API 强制更新 `debug-latest` tag 指向 `GITHUB_SHA`。
     - 创建或更新 `debug-latest` Release（pre-release），并上传/覆盖 `app-debug.apk`。
     - 写入 Actions run Summary：包含 Release 页面与 `.apk` 直链下载地址。
 

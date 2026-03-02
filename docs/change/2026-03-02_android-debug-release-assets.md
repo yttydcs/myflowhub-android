@@ -53,7 +53,6 @@
 
 保持稳定命名以保证直链稳定：
 
-- APK：`myflowhub-debug.apk`
 - APK：`app-debug.apk`
 - AAR：`myflowhub.aar`
 
