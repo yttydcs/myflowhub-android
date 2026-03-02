@@ -53,6 +53,7 @@
   - 资产命名固定：
     - `myflowhub-debug.apk`
     - `myflowhub.aar`
+  - 注意：GitHub Release 的 download URL 使用 **asset name**；`gh release upload file#label` 只会设置 label，不会改变 download URL。
   - **不要硬编码依赖 upload-artifact 的目录根**：基于下载后的 `artifacts/` 目录结构定位 APK/AAR（或将 download 目标目录对齐到预期根目录）。
 - 验收：
   - main push 后，仓库 Releases 中 `debug-latest` 可见且包含：

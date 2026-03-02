@@ -55,6 +55,12 @@
 - APK：`myflowhub-debug.apk`
 - AAR：`myflowhub.aar`
 
+注意：
+
+- GitHub Release 的 download URL 使用 **asset name**（而不是 label）。
+- `gh release upload path/to/app-debug.apk#myflowhub-debug.apk` 只会设置 label，download URL 仍然是 `.../app-debug.apk`，会导致 Summary 的 `.../myflowhub-debug.apk` 直链 404。
+- 因此发布时会将产物复制为固定文件名再上传，并清理历史遗留的 `app-debug.apk` asset（如存在）。
+
 ## 测试与验证方式 / 结果
 
 说明：此变更主要影响 GitHub Actions 行为，本地无法完全等价模拟。
