@@ -27,6 +27,7 @@
 - `.github/workflows/ci.yml`
   - `publish-debug-latest`：
     - 通过 `find artifacts` 定位 `app-debug.apk` 与 `myflowhub.aar`，并使用“路径后缀匹配 + 必须且仅能命中 1 个”进行校验。
+    - 使用 `curl` 调 GitHub REST API 创建/更新 `debug-latest` tag（避免 `gh api -f force=true` 的参数类型歧义导致更新失败）。
     - 发布/覆盖 Release assets（`--clobber`）：
       - `app-debug.apk`
       - `myflowhub.aar`

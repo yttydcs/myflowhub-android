@@ -153,10 +153,28 @@ jobs:
           aar_path="${aar_candidates[0]}"
 
           # 让 debug-latest tag 永远指向最新 main commit（强制更新）
-          if gh api "repos/${repo}/git/ref/tags/${tag}" >/dev/null 2>&1; then
-            gh api --method PATCH "repos/${repo}/git/refs/tags/${tag}" -f sha="${sha}" -f force=true >/dev/null
+          api_base="https://api.github.com"
+          auth_header="Authorization: token ${GH_TOKEN}"
+          accept_header="Accept: application/vnd.github+json"
+          version_header="X-GitHub-Api-Version: 2022-11-28"
+
+          ref_url="${api_base}/repos/${repo}/git/ref/tags/${tag}"
+          ref_status="$(curl -sS -o /dev/null -w '%{http_code}' -H "${auth_header}" -H "${accept_header}" -H "${version_header}" "${ref_url}")"
+          if [[ "${ref_status}" == "200" ]]; then
+            curl -sSf -X PATCH \
+              -H "${auth_header}" -H "${accept_header}" -H "${version_header}" \
+              "${api_base}/repos/${repo}/git/refs/tags/${tag}" \
+              -d "{\"sha\":\"${sha}\",\"force\":true}" \
+              >/dev/null
+          elif [[ "${ref_status}" == "404" ]]; then
+            curl -sSf -X POST \
+              -H "${auth_header}" -H "${accept_header}" -H "${version_header}" \
+              "${api_base}/repos/${repo}/git/refs" \
+              -d "{\"ref\":\"refs/tags/${tag}\",\"sha\":\"${sha}\"}" \
+              >/dev/null
           else
-            gh api --method POST "repos/${repo}/git/refs" -f ref="refs/tags/${tag}" -f sha="${sha}" >/dev/null
+            echo "检查 tag ref 失败：HTTP ${ref_status} (${ref_url})" >&2
+            exit 1
           fi
 
           release_title="Debug (latest)"
