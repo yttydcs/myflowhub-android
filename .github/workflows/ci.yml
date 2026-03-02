@@ -125,13 +125,8 @@ jobs:
           fi
 
           release_title="Debug (latest)"
-          release_notes=$(cat <<EOF
-          自动构建的 Debug 版本（main）
-
-          commit=${sha}
-          run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          EOF
-          )
+          run_url="${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}"
+          release_notes=$(printf "自动构建的 Debug 版本（main）\n\ncommit=%s\nrun=%s\n" "${sha}" "${run_url}")
 
           if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
             gh release edit "${tag}" --repo "${repo}" --title "${release_title}" --notes "${release_notes}" --prerelease
