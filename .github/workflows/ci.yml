@@ -98,7 +98,7 @@ jobs:
           name: myflowhub-android-debug
           path: artifacts
 
-      - name: Publish debug-latest release (APK)
+      - name: Publish debug-latest release (APK + AAR)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -109,13 +109,48 @@ jobs:
           tag="debug-latest"
           sha="${GITHUB_SHA}"
 
-          apk_path="artifacts/repo/MyFlowHub-Android/app/build/outputs/apk/debug/app-debug.apk"
-          if [[ ! -f "${apk_path}" ]]; then
-            echo "找不到 APK：${apk_path}" >&2
+          if [[ ! -d "artifacts" ]]; then
+            echo "找不到 artifacts 目录（download-artifact 可能失败）" >&2
+            exit 1
+          fi
+
+          mapfile -t apk_candidates < <(find artifacts -type f -name 'app-debug.apk' -print)
+          filtered_apk_candidates=()
+          for p in "${apk_candidates[@]}"; do
+            if [[ "${p}" == */build/outputs/apk/debug/app-debug.apk ]]; then
+              filtered_apk_candidates+=("${p}")
+            fi
+          done
+          apk_candidates=("${filtered_apk_candidates[@]}")
+          if (( ${#apk_candidates[@]} != 1 )); then
+            echo "期望找到 1 个 Debug APK（*/build/outputs/apk/debug/app-debug.apk），但找到 ${#apk_candidates[@]} 个" >&2
+            if (( ${#apk_candidates[@]} > 0 )); then
+              printf '  - %s\n' "${apk_candidates[@]}" >&2
+            fi
             echo "artifacts 目录结构：" >&2
             ls -R artifacts >&2
             exit 1
           fi
+          apk_path="${apk_candidates[0]}"
+
+          mapfile -t aar_candidates < <(find artifacts -type f -name 'myflowhub.aar' -print)
+          filtered_aar_candidates=()
+          for p in "${aar_candidates[@]}"; do
+            if [[ "${p}" == */libs/myflowhub.aar ]]; then
+              filtered_aar_candidates+=("${p}")
+            fi
+          done
+          aar_candidates=("${filtered_aar_candidates[@]}")
+          if (( ${#aar_candidates[@]} != 1 )); then
+            echo "期望找到 1 个 AAR（*/libs/myflowhub.aar），但找到 ${#aar_candidates[@]} 个" >&2
+            if (( ${#aar_candidates[@]} > 0 )); then
+              printf '  - %s\n' "${aar_candidates[@]}" >&2
+            fi
+            echo "artifacts 目录结构：" >&2
+            ls -R artifacts >&2
+            exit 1
+          fi
+          aar_path="${aar_candidates[0]}"
 
           # 让 debug-latest tag 永远指向最新 main commit（强制更新）
           if gh api "repos/${repo}/git/ref/tags/${tag}" >/dev/null 2>&1; then
@@ -135,14 +170,17 @@ jobs:
           fi
 
           gh release upload "${tag}" "${apk_path}#myflowhub-debug.apk" --repo "${repo}" --clobber
+          gh release upload "${tag}" "${aar_path}#myflowhub.aar" --repo "${repo}" --clobber
 
-          download_url="https://github.com/${repo}/releases/download/${tag}/myflowhub-debug.apk"
+          apk_url="https://github.com/${repo}/releases/download/${tag}/myflowhub-debug.apk"
+          aar_url="https://github.com/${repo}/releases/download/${tag}/myflowhub.aar"
           release_url="https://github.com/${repo}/releases/tag/${tag}"
           {
-            echo "## Debug APK"
+            echo "## Debug Assets"
             echo ""
             echo "- Release: ${release_url}"
-            echo "- Direct download: ${download_url}"
+            echo "- APK: ${apk_url}"
+            echo "- AAR: ${aar_url}"
             echo "- Commit: \`${sha}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
