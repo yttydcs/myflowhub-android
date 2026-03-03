@@ -24,6 +24,10 @@ object Prefs {
 
     private const val KEY_VARSTORE_WATCH_LIST = "varstore_watch_list"
 
+    private const val KEY_TOPICBUS_SUBS = "topicbus.subs"
+    private const val KEY_TOPICBUS_MAX_EVENTS = "topicbus.max_events"
+    private const val DEFAULT_TOPICBUS_MAX_EVENTS = 500
+
     data class IdentityMigration(
         val legacyId: String,
         val hubSelfId: String,
@@ -136,6 +140,11 @@ object Prefs {
         val owner: Long,
     )
 
+    data class TopicBusPrefs(
+        val topics: List<String>,
+        val maxEvents: Int,
+    )
+
     fun loadClient(context: Context): ClientConfig {
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val identity = ensureIdentity(context)
@@ -197,6 +206,43 @@ object Prefs {
         }
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         sp.edit().putString(KEY_VARSTORE_WATCH_LIST, arr.toString()).apply()
+    }
+
+    fun loadTopicBusPrefs(context: Context): TopicBusPrefs {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = (sp.getString(KEY_TOPICBUS_SUBS, "") ?: "").trim()
+        val maxEvents = runCatching { sp.getInt(KEY_TOPICBUS_MAX_EVENTS, DEFAULT_TOPICBUS_MAX_EVENTS) }
+            .getOrDefault(DEFAULT_TOPICBUS_MAX_EVENTS)
+            .coerceAtLeast(1)
+
+        if (raw.isBlank()) {
+            return TopicBusPrefs(topics = emptyList(), maxEvents = maxEvents)
+        }
+
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return TopicBusPrefs(topics = emptyList(), maxEvents = maxEvents)
+        val seen = hashSetOf<String>()
+        val out = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val topic = arr.optString(i, "").trim()
+            if (topic.isBlank() || !seen.add(topic)) continue
+            out.add(topic)
+        }
+        return TopicBusPrefs(topics = out, maxEvents = maxEvents)
+    }
+
+    fun saveTopicBusPrefs(context: Context, topics: List<String>, maxEvents: Int) {
+        val seen = hashSetOf<String>()
+        val arr = JSONArray()
+        for (topic in topics) {
+            val trimmed = topic.trim()
+            if (trimmed.isBlank() || !seen.add(trimmed)) continue
+            arr.put(trimmed)
+        }
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        sp.edit()
+            .putString(KEY_TOPICBUS_SUBS, arr.toString())
+            .putInt(KEY_TOPICBUS_MAX_EVENTS, maxEvents.coerceAtLeast(1))
+            .apply()
     }
 }
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Code
@@ -61,6 +62,7 @@ private enum class AppTab(val label: String, val icon: ImageVector) {
     Hub("Hub", Icons.Outlined.Hub),
     Devices("Devices", Icons.Outlined.Devices),
     VarStore("VarStore", Icons.Outlined.Storage),
+    TopicBus("TopicBus", Icons.AutoMirrored.Outlined.Chat),
     Logs("Logs", Icons.AutoMirrored.Outlined.Article),
     Protocols("Protocols", Icons.Outlined.Code),
 }
@@ -189,6 +191,14 @@ fun AppRoot() {
             )
 
             AppTab.VarStore -> VarStoreScreen(
+                modifier = contentModifier,
+                go = go,
+                goError = goError,
+                cfg = clientCfg,
+                ui = ui,
+            )
+
+            AppTab.TopicBus -> TopicBusScreen(
                 modifier = contentModifier,
                 go = go,
                 goError = goError,
