@@ -85,6 +85,50 @@ class GoClientBridge {
         String::class.java,
     )
 
+    private val topicBusSubscribeMethod = GoReflect.method(
+        cls,
+        "TopicBusSubscribeSimple",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val topicBusSubscribeBatchMethod = GoReflect.method(
+        cls,
+        "TopicBusSubscribeBatchSimple",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val topicBusUnsubscribeMethod = GoReflect.method(
+        cls,
+        "TopicBusUnsubscribeSimple",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val topicBusUnsubscribeBatchMethod = GoReflect.method(
+        cls,
+        "TopicBusUnsubscribeBatchSimple",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val topicBusPublishMethod = GoReflect.method(
+        cls,
+        "TopicBusPublish",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val topicBusEventsPullMethod = GoReflect.method(
+        cls,
+        "TopicBusEventsPull",
+        String::class.java,
+        String::class.java,
+    )
+
     private val sendAndAwaitMethod = GoReflect.method(
         cls,
         "SendAndAwait",
@@ -220,6 +264,45 @@ class GoClientBridge {
 
     fun varStoreEventsPull(cursor: String, limit: String): String =
         (varStoreEventsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
+
+    fun topicBusSubscribe(sourceId: String, targetId: String, topic: String): String {
+        val result = topicBusSubscribeMethod.invoke(null, sourceId, targetId, topic) as? String
+        if (result == null) {
+            throw IllegalStateException("Go TopicBusSubscribe returned null")
+        }
+        return result
+    }
+
+    fun topicBusSubscribeBatch(sourceId: String, targetId: String, topicsJson: String): String {
+        val result = topicBusSubscribeBatchMethod.invoke(null, sourceId, targetId, topicsJson) as? String
+        if (result == null) {
+            throw IllegalStateException("Go TopicBusSubscribeBatch returned null")
+        }
+        return result
+    }
+
+    fun topicBusUnsubscribe(sourceId: String, targetId: String, topic: String): String {
+        val result = topicBusUnsubscribeMethod.invoke(null, sourceId, targetId, topic) as? String
+        if (result == null) {
+            throw IllegalStateException("Go TopicBusUnsubscribe returned null")
+        }
+        return result
+    }
+
+    fun topicBusUnsubscribeBatch(sourceId: String, targetId: String, topicsJson: String): String {
+        val result = topicBusUnsubscribeBatchMethod.invoke(null, sourceId, targetId, topicsJson) as? String
+        if (result == null) {
+            throw IllegalStateException("Go TopicBusUnsubscribeBatch returned null")
+        }
+        return result
+    }
+
+    fun topicBusPublish(sourceId: String, targetId: String, topic: String, name: String, payloadText: String) {
+        topicBusPublishMethod.invoke(null, sourceId, targetId, topic, name, payloadText)
+    }
+
+    fun topicBusEventsPull(cursor: String, limit: String): String =
+        (topicBusEventsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
 
     fun sendAndAwait(
         subProto: String,

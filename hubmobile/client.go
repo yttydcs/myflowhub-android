@@ -81,6 +81,7 @@ func onUnmatchedFrame(hdr core.IHeader, payload []byte) {
 
 	// Capture lightweight notify events for UI auto-update (VarStore only).
 	captureVarStoreUnmatchedFrame(hdr, payload)
+	captureTopicBusUnmatchedFrame(hdr, payload)
 }
 
 func onClientError(err error) {
@@ -386,15 +387,15 @@ func sendAndAwait(ctx context.Context, sub uint8, src, tgt uint32, payload []byt
 func setAuthSnapshot(action, deviceID string, data protoauth.RespData) {
 	authMu.Lock()
 	authState = authSnapshot{
-		DeviceID:      deviceID,
-		NodeID:        data.NodeID,
-		HubID:         data.HubID,
-		Role:          strings.TrimSpace(data.Role),
-		Perms:         cloneStrings(data.Perms),
-		LoggedIn:      true,
-		LastAction:    action,
-		LastMessage:   strings.TrimSpace(data.Msg),
-		LastUnixTime:  nowUnix(),
+		DeviceID:     deviceID,
+		NodeID:       data.NodeID,
+		HubID:        data.HubID,
+		Role:         strings.TrimSpace(data.Role),
+		Perms:        cloneStrings(data.Perms),
+		LoggedIn:     true,
+		LastAction:   action,
+		LastMessage:  strings.TrimSpace(data.Msg),
+		LastUnixTime: nowUnix(),
 	}
 	authMu.Unlock()
 	logInfo("auth ok", "action", action, "device", deviceID, "node", data.NodeID, "hub", data.HubID, "role", strings.TrimSpace(data.Role))
