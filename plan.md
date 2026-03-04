@@ -128,8 +128,15 @@
 - 测试点：文档字段完整性检查。
 - 回滚点：撤销文档提交。
 
+### ANDREL5 - 对齐 hubmobile module 依赖（修复 go mod tidy 漂移）
+- 目标：修复 `Build AAR` 过程中因依赖漂移导致的 `go.mod` 校验失败。
+- 涉及文件：`hubmobile/go.mod`、`hubmobile/go.sum`
+- 验收条件：`GOWORK=off go test ./...` 通过，且仅产生必要版本对齐变更。
+- 测试点：`cd hubmobile; GOWORK=off go mod tidy && GOWORK=off go test ./... -count=1 -p 1`。
+- 回滚点：revert 本任务提交，或恢复到变更前版本。
+
 ## 依赖关系
-- ANDREL1/2/3 完成后，才能执行 ANDREL4。
+- ANDREL1/2/3 完成后，执行 ANDREL5，再执行 ANDREL4。
 
 ## 风险与注意事项
 - GitHub API 匿名限流会影响即时日志拉取；以 workflow 页面结果为准。
@@ -140,4 +147,5 @@
 - 2026-03-04：完成 ANDREL1（`scripts/build_aar.sh` 引入模块版本驱动的 gomobile/gobind 安装策略）。
 - 2026-03-04：完成 ANDREL2（`release.yml` Build AAR 前固定安装 gomobile/gobind，并新增 gomobile 日志上传）。
 - 2026-03-04：完成 ANDREL3（`ci.yml` 同步固定安装策略与 gomobile 日志上传）。
+- 2026-03-04：完成 ANDREL5（`hubmobile/go.mod/go.sum` 对齐 `myflowhub-subproto/file v0.1.1`，消除 tidy 漂移）。
 - 2026-03-04：完成 ANDREL4（新增 `docs/change/2026-03-04_android-release-gomobile-pin.md` 归档）。

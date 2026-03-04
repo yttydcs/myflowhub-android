@@ -2,7 +2,9 @@
 
 ## 变更背景 / 目标
 - 背景：`MyFlowHub-Android` 在相同 commit（`6708fa2`）下，历史 tag `v0.1.12` 的 release 构建成功，但新 tag `v0.1.13` 的 release 在 `Build AAR (gomobile)` 失败。
-- 根因判断：AAR 构建依赖 `gomobile` 工具链，原流程在工具缺失时使用 `@latest` 安装，导致“同一代码、不同时间”可能拉到不同版本，产生非确定性失败。
+- 根因判断（双因素）：
+  1) AAR 构建依赖 `gomobile` 工具链，原流程在工具缺失时使用 `@latest` 安装，存在时间漂移风险；
+  2) `hubmobile` 相对 `MyFlowHub-Server(main)` 的依赖链出现 `go mod tidy` 漂移（`myflowhub-subproto/file v0.1.0 -> v0.1.1`），导致构建阶段快速失败。
 - 目标：将 gomobile/gobind 工具链改为“由模块版本驱动”，恢复 release 的可复现性与可审计性。
 
 ## 具体变更内容
@@ -26,6 +28,11 @@
 - Build AAR 步骤改为 `tee gomobile-build.log`。
 - 新增失败时上传 `gomobile-build.log` artifact。
 
+4) `hubmobile/go.mod` / `hubmobile/go.sum`
+- 执行 `GOWORK=off go mod tidy` 后对齐依赖：
+  - `github.com/yttydcs/myflowhub-subproto/file`：`v0.1.0` -> `v0.1.1`（indirect）
+- 消除与 Server 当前依赖图不一致导致的 module 校验失败。
+
 ### 新增
 - `docs/plan_archive/plan_archive_2026-03-04_android-release-gomobile-pin-prev.md`（归档旧计划）
 - 新 `plan.md`（本 workflow 全流程计划）
@@ -38,6 +45,7 @@
 - ANDREL1：加固 `scripts/build_aar.sh`（已完成）
 - ANDREL2：release workflow 固定版本安装（已完成）
 - ANDREL3：ci workflow 固定版本安装（已完成）
+- ANDREL5：对齐 hubmobile module 依赖（已完成）
 - ANDREL4：验证与记录（已完成）
 
 ## 关键设计决策与权衡（性能 / 扩展性）
@@ -56,6 +64,8 @@
 - 已执行：
   - `go list -m -f '{{.Version}}' golang.org/x/mobile`（在 `hubmobile`，`GOWORK=off`）
     - 结果：`v0.0.0-20260217195705-b56b3793a9c4`
+  - `cd hubmobile; GOWORK=off go mod tidy && GOWORK=off go test ./... -count=1 -p 1`
+    - 结果：通过
   - `bash -n scripts/build_aar.sh`（Git Bash）
     - 结果：通过（无语法错误）
 - 未在本地执行：完整 `gomobile bind` 与 Android release 打包（受本机 Android 构建环境/凭据限制，按 CI 验证）。
