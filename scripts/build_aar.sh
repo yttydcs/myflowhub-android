@@ -37,10 +37,47 @@ if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_SDK_ROOT:-}" ]]; then
   fi
 fi
 
-if ! command -v gomobile >/dev/null 2>&1; then
-  echo "gomobile not found, installing..."
-  go install golang.org/x/mobile/cmd/gomobile@latest
+ensure_go_bin_in_path() {
+  local go_bin
+  go_bin="$(go env GOPATH)/bin"
+  case ":${PATH}:" in
+    *":${go_bin}:"*) ;;
+    *) export PATH="${go_bin}:${PATH}" ;;
+  esac
+}
+
+resolve_x_mobile_version() {
+  local mobile_version
+  pushd "${REPO_ROOT}/hubmobile" >/dev/null
+  mobile_version="$(GOWORK=off go list -m -f '{{.Version}}' golang.org/x/mobile 2>/dev/null || true)"
+  popd >/dev/null
+  if [[ -n "${mobile_version}" && "${mobile_version}" != "(devel)" ]]; then
+    printf '%s' "${mobile_version}"
+    return 0
+  fi
+  return 1
+}
+
+install_gomobile_tools() {
+  local mobile_version
+  if mobile_version="$(resolve_x_mobile_version)"; then
+    echo "Installing gomobile/gobind: ${mobile_version}"
+    GOWORK=off go install "golang.org/x/mobile/cmd/gomobile@${mobile_version}"
+    GOWORK=off go install "golang.org/x/mobile/cmd/gobind@${mobile_version}"
+  else
+    echo "WARN: 无法从 hubmobile/go.mod 解析 golang.org/x/mobile 版本，fallback 到 latest" >&2
+    GOWORK=off go install golang.org/x/mobile/cmd/gomobile@latest
+    GOWORK=off go install golang.org/x/mobile/cmd/gobind@latest
+  fi
+  ensure_go_bin_in_path
+}
+
+ensure_go_bin_in_path
+if ! command -v gomobile >/dev/null 2>&1 || ! command -v gobind >/dev/null 2>&1; then
+  echo "gomobile/gobind not found, installing..."
+  install_gomobile_tools
 fi
+gomobile version || true
 
 mkdir -p "$(dirname "${REPO_ROOT}/${OUT_FILE}")"
 

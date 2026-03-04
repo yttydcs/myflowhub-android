@@ -71,6 +71,21 @@ jobs:
       - name: Setup Gradle cache
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Install gomobile (pinned by hubmobile/go.mod)
+        shell: bash
+        working-directory: repo/MyFlowHub-Android/hubmobile
+        run: |
+          set -euo pipefail
+          mobile_version="$(GOWORK=off go list -m -f '{{.Version}}' golang.org/x/mobile)"
+          if [[ -z "${mobile_version}" || "${mobile_version}" == "(devel)" ]]; then
+            echo "无法从 hubmobile/go.mod 解析 golang.org/x/mobile 版本" >&2
+            exit 1
+          fi
+          go install "golang.org/x/mobile/cmd/gomobile@${mobile_version}"
+          go install "golang.org/x/mobile/cmd/gobind@${mobile_version}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          gomobile version || true
+
       - name: Decode keystore
         shell: bash
         run: |
@@ -83,7 +98,18 @@ jobs:
           echo "ANDROID_KEYSTORE_PATH=${RUNNER_TEMP}/keystore.jks" >> "$GITHUB_ENV"
 
       - name: Build AAR (gomobile)
-        run: bash repo/MyFlowHub-Android/scripts/build_aar.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash repo/MyFlowHub-Android/scripts/build_aar.sh 2>&1 | tee gomobile-build.log
+
+      - name: Upload gomobile log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myflowhub-android-release-gomobile-log
+          if-no-files-found: ignore
+          path: gomobile-build.log
 
       - name: Assemble release APK (signed)
         working-directory: repo/MyFlowHub-Android
