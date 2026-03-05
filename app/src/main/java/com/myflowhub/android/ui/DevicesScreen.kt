@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.myflowhub.android.GoClientBridge
+import com.myflowhub.android.GoReflect
 import com.myflowhub.android.Prefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private typealias NodeInfoPair = Pair<Long, Boolean>
+
+private fun toUiErrorMessage(err: Throwable, go: GoClientBridge?): String {
+    val fallback = runCatching { go?.lastError().orEmpty() }.getOrDefault("")
+    return GoReflect.renderError(err, fallback)
+}
 
 @Stable
 private class DeviceTreeNode(
@@ -104,7 +110,7 @@ fun DevicesScreen(
     val seenNodeIds = remember { mutableSetOf<Long>() }
     val nodeIndex = remember { mutableMapOf<String, DeviceTreeNode>() }
 
-    fun toErrorMessage(err: Throwable): String = err.message ?: err.toString()
+    fun toErrorMessage(err: Throwable): String = toUiErrorMessage(err, go)
 
     fun ensureIdentity(): Pair<String, String> {
         if (go == null) throw IllegalStateException("Go AAR unavailable")
@@ -495,7 +501,7 @@ private fun NodeDetailsDialog(
 
     val isUiNode = cfg.nodeId.trim().toLongOrNull() == nodeId
 
-    fun toErrorMessage(err: Throwable): String = err.message ?: err.toString()
+    fun toErrorMessage(err: Throwable): String = toUiErrorMessage(err, go)
 
     suspend fun load() {
         loading = true
@@ -611,7 +617,7 @@ private fun NodeEditDialog(
     var keysError by remember { mutableStateOf("") }
     var configKeys by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    fun toErrorMessage(err: Throwable): String = err.message ?: err.toString()
+    fun toErrorMessage(err: Throwable): String = toUiErrorMessage(err, go)
 
     suspend fun requireSourceId(): String {
         val g = go ?: throw IllegalStateException("Go AAR unavailable")
