@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -168,6 +169,17 @@ fun VarStoreScreen(
     var editVisibility by remember { mutableStateOf("public") }
     var editKind by remember { mutableStateOf("string") }
 
+    var nodeVarsOpen by remember { mutableStateOf(false) }
+    var nodeVarsOwnerInput by remember { mutableStateOf("") }
+    var nodeVarsQuery by remember { mutableStateOf("") }
+    var nodeVarsLoading by remember { mutableStateOf(false) }
+    var nodeVarsError by remember { mutableStateOf("") }
+    val nodeVarsNames = remember { mutableStateListOf<String>() }
+
+    var restoreEpoch by remember { mutableStateOf(0) }
+    var lastAutoRestoreKey by remember { mutableStateOf("") }
+    var connected by remember { mutableStateOf(false) }
+
     fun keyId(key: VarKey): String = "${key.name}#${key.owner}"
 
     fun normalizeKey(input: VarKey): VarKey {
@@ -194,6 +206,51 @@ fun VarStoreScreen(
         state.keys.removeAll { it.name == key.name && it.owner == key.owner }
         state.data.remove(keyId(key))
         desiredSubs.remove(keyId(key))
+    }
+
+    fun touchRestoreEpoch() {
+        restoreEpoch += 1
+    }
+
+    fun ensureSubPrefDefaults() {
+        for (key in state.keys) {
+            val normalized = normalizeKey(key)
+            if (normalized.name.isBlank() || normalized.owner <= 0) continue
+            if (state.selfNodeId > 0 && normalized.owner == state.selfNodeId) continue
+            desiredSubs.putIfAbsent(keyId(normalized), false)
+        }
+    }
+
+    fun loadSubPrefs() {
+        desiredSubs.clear()
+        val prefs = Prefs.loadVarStoreSubPrefs(context)
+        for (pref in prefs) {
+            val name = pref.name.trim()
+            val owner = pref.owner
+            if (name.isBlank() || owner <= 0 || !varNameRegex.matches(name)) continue
+            desiredSubs["${name}#${owner}"] = pref.subscribed
+        }
+        ensureSubPrefDefaults()
+    }
+
+    fun saveSubPrefs() {
+        ensureSubPrefDefaults()
+        val prefs = state.keys
+            .filter { !(state.selfNodeId > 0 && it.owner == state.selfNodeId) }
+            .mapNotNull {
+                val normalized = normalizeKey(it)
+                if (normalized.name.isBlank() || normalized.owner <= 0) return@mapNotNull null
+                Prefs.VarStoreSubPref(
+                    name = normalized.name,
+                    owner = normalized.owner,
+                    subscribed = desiredSubs[keyId(normalized)] == true,
+                )
+            }
+        Prefs.saveVarStoreSubPrefs(context, prefs)
+    }
+
+    fun saveSubPrefsBestEffort() {
+        runCatching { saveSubPrefs() }
     }
 
     fun isSelfKey(key: VarKey): Boolean = state.selfNodeId > 0 && key.owner == state.selfNodeId
@@ -263,8 +320,8 @@ fun VarStoreScreen(
     }
 
     suspend fun ensureConnected(g: GoClientBridge) {
-        val connected = withContext(Dispatchers.IO) { runCatching { g.isConnected() }.getOrDefault(false) }
-        if (!connected) throw IllegalStateException("Connect before sending VarStore requests.")
+        val isConnectedNow = withContext(Dispatchers.IO) { runCatching { g.isConnected() }.getOrDefault(false) }
+        if (!isConnectedNow) throw IllegalStateException("Connect before sending VarStore requests.")
     }
 
     fun ensureVarName(name: String) {
@@ -385,6 +442,8 @@ fun VarStoreScreen(
         val keepMine = state.keys.filter { isSelfKey(it) }
         state.keys.clear()
         state.keys.addAll((keepMine + filtered).distinctBy { keyId(it) })
+        ensureSubPrefDefaults()
+        touchRestoreEpoch()
         ui.success("已加载 Saved Watch List（${filtered.size}）")
     }
 
@@ -393,6 +452,59 @@ fun VarStoreScreen(
             .filter { !isSelfKey(it) }
             .map { Prefs.VarStoreWatchKey(name = it.name.trim(), owner = it.owner) }
         Prefs.saveVarStoreWatchList(context, watch)
+    }
+
+    fun addWatchKey(input: VarKey): Boolean {
+        val key = normalizeKey(input)
+        if (key.name.isBlank() || key.owner <= 0) return false
+        val existed = state.keys.any { it.name == key.name && it.owner == key.owner }
+        upsertKey(key)
+        if (!isSelfKey(key)) {
+            desiredSubs.putIfAbsent(keyId(key), false)
+            saveWatchList()
+            saveSubPrefsBestEffort()
+            touchRestoreEpoch()
+        }
+        return !existed
+    }
+
+    fun parseNodeVarsOwnerInput(): Long {
+        val owner = nodeVarsOwnerInput.trim().toLongOrNull() ?: 0L
+        if (owner <= 0) throw IllegalStateException("Owner NodeID must be a positive number.")
+        return owner
+    }
+
+    suspend fun listOwnerNames(ownerId: Long): List<String> {
+        val g = go ?: throw IllegalStateException("Go AAR unavailable")
+        ensureConnected(g)
+        val sourceId = parseSelfNodeId()
+        if (ownerId <= 0) throw IllegalStateException("Owner NodeID must be a positive number.")
+        val raw = withContext(Dispatchers.IO) {
+            g.varStoreList(sourceId.toString(), ownerId.toString(), ownerId.toString())
+        }
+        val resp = parseVarResp(raw)
+        if (resp.code == 4) return emptyList()
+        if (resp.code != 1) {
+            val msg = resp.msg.ifBlank { "VarStore list failed (code=${resp.code})" }
+            throw IllegalStateException(msg)
+        }
+        return resp.names
+            .map { it.trim() }
+            .filter { it.isNotBlank() && varNameRegex.matches(it) }
+            .distinct()
+            .sorted()
+    }
+
+    fun openNodeVarsDialog() {
+        val defaultOwner = state.targetId.trim().toLongOrNull()?.takeIf { it > 0 }
+            ?: state.keys.firstOrNull { !isSelfKey(it) }?.owner
+            ?: state.defaultTargetId.takeIf { it > 0 }
+        nodeVarsOwnerInput = defaultOwner?.toString() ?: ""
+        nodeVarsQuery = ""
+        nodeVarsError = ""
+        nodeVarsNames.clear()
+        nodeVarsLoading = false
+        nodeVarsOpen = true
     }
 
     fun openAddMine() {
@@ -463,13 +575,16 @@ fun VarStoreScreen(
         val name = addWatchName.trim()
         ensureVarName(name)
         val key = VarKey(name = name, owner = owner)
-        upsertKey(key)
-        saveWatchList()
+        val added = addWatchKey(key)
         addWatchOpen = false
 
         val token = opSeq
-        getVar(token, key)
-        ui.success("Watch added.")
+        if (added) {
+            getVar(token, key)
+            ui.success("Watch added.")
+        } else {
+            ui.info("Already watched.")
+        }
     }
 
     suspend fun submitEdit() {
@@ -519,6 +634,8 @@ fun VarStoreScreen(
         removeLocalKey(key)
         if (!isSelfKey(key)) {
             saveWatchList()
+            saveSubPrefsBestEffort()
+            touchRestoreEpoch()
         }
         ui.success("Revoked.")
     }
@@ -536,6 +653,8 @@ fun VarStoreScreen(
 
         if (subscribe) {
             desiredSubs[id] = true
+            saveSubPrefsBestEffort()
+            touchRestoreEpoch()
             val token = opSeq
             val respRaw = withContext(Dispatchers.IO) {
                 g.varStoreSubscribe(sourceId.toString(), targetId.toString(), normalized.name, normalized.owner.toString(), sourceId.toString())
@@ -555,6 +674,8 @@ fun VarStoreScreen(
 
         // unsubscribe (optimistic, but rollback on failure)
         desiredSubs[id] = false
+        saveSubPrefsBestEffort()
+        touchRestoreEpoch()
         val prevKnown = vs.subKnown
         val prevSub = vs.subscribed
         updateValue(normalized) {
@@ -596,6 +717,65 @@ fun VarStoreScreen(
         }
     }
 
+    suspend fun restoreDesiredSubscriptions(parallelism: Int = 4): Pair<Int, Int> {
+        val g = go ?: return 0 to 0
+        ensureConnected(g)
+        val sourceId = parseSelfNodeId()
+        val targetId = resolveTargetId()
+        ensureSubPrefDefaults()
+        val desired = state.keys
+            .map { normalizeKey(it) }
+            .filter {
+                it.name.isNotBlank() &&
+                    it.owner > 0 &&
+                    !isSelfKey(it) &&
+                    desiredSubs[keyId(it)] == true
+            }
+        if (desired.isEmpty()) return 0 to 0
+
+        val queue = Channel<VarKey>(capacity = parallelism.coerceAtLeast(1) * 2)
+        val fail = AtomicInteger(0)
+        return try {
+            kotlinx.coroutines.coroutineScope {
+                val workers = List(parallelism.coerceAtLeast(1).coerceAtMost(desired.size)) {
+                    launch {
+                        for (key in queue) {
+                            try {
+                                val raw = withContext(Dispatchers.IO) {
+                                    g.varStoreSubscribe(
+                                        sourceId.toString(),
+                                        targetId.toString(),
+                                        key.name,
+                                        key.owner.toString(),
+                                        sourceId.toString(),
+                                    )
+                                }
+                                val resp = parseVarResp(raw)
+                                updateValue(key) {
+                                    it.subKnown = true
+                                    it.subscribed = true
+                                    if (resp.visibility.isNotBlank()) it.visibility = resp.visibility
+                                    if (resp.type.isNotBlank()) it.kind = resp.type
+                                }
+                            } catch (t: Throwable) {
+                                if (t is CancellationException) throw t
+                                fail.incrementAndGet()
+                            }
+                        }
+                    }
+                }
+                for (key in desired) {
+                    queue.send(key)
+                }
+                queue.close()
+                workers.joinAll()
+            }
+            desired.size to fail.get()
+        } finally {
+            queue.close()
+        }
+    }
+
     LaunchedEffect(Unit) {
         state.selfNodeId = cfg.nodeId.trim().toLongOrNull() ?: 0L
         state.defaultTargetId = cfg.hubId.trim().toLongOrNull() ?: 0L
@@ -611,6 +791,8 @@ fun VarStoreScreen(
                 .filter { it.name.isNotBlank() && it.owner > 0 && varNameRegex.matches(it.name) }
                 .distinctBy { keyId(it) },
         )
+        loadSubPrefs()
+        touchRestoreEpoch()
     }
 
     LaunchedEffect(cfg.nodeId, cfg.hubId) {
@@ -618,6 +800,68 @@ fun VarStoreScreen(
         state.defaultTargetId = cfg.hubId.trim().toLongOrNull() ?: 0L
         if (state.targetId.isBlank() && state.defaultTargetId > 0) {
             state.targetId = state.defaultTargetId.toString()
+        }
+    }
+
+    LaunchedEffect(go) {
+        while (isActive) {
+            val g = go
+            if (g == null) {
+                connected = false
+                delay(800)
+                continue
+            }
+            connected = withContext(Dispatchers.IO) { runCatching { g.isConnected() }.getOrDefault(false) }
+            delay(800)
+        }
+    }
+
+    LaunchedEffect(connected) {
+        if (!connected) {
+            lastAutoRestoreKey = ""
+        }
+    }
+
+    LaunchedEffect(connected, cfg.nodeId, cfg.hubId, restoreEpoch) {
+        val nodeId = cfg.nodeId.trim()
+        if (!connected || nodeId.isBlank()) return@LaunchedEffect
+
+        val targets = state.keys
+            .map { normalizeKey(it) }
+            .filter {
+                it.name.isNotBlank() &&
+                    it.owner > 0 &&
+                    !isSelfKey(it) &&
+                    desiredSubs[keyId(it)] == true
+            }
+            .sortedWith(compareBy({ it.owner }, { it.name }))
+
+        if (targets.isEmpty()) return@LaunchedEffect
+
+        val restoreKey = buildString {
+            append(nodeId)
+            append("#")
+            append(cfg.hubId.trim())
+            append("#")
+            for (key in targets) {
+                append(keyId(key))
+                append(";")
+            }
+        }
+        if (restoreKey == lastAutoRestoreKey) return@LaunchedEffect
+        lastAutoRestoreKey = restoreKey
+
+        val result = runCatching { restoreDesiredSubscriptions(parallelism = 4) }.getOrElse {
+            ui.error("自动恢复订阅失败：${it.message ?: it}")
+            return@LaunchedEffect
+        }
+        val attempted = result.first
+        val failed = result.second
+        if (attempted <= 0) return@LaunchedEffect
+        if (failed > 0) {
+            ui.error("自动恢复订阅：成功 ${attempted - failed}，失败 ${failed}")
+        } else {
+            ui.success("已自动恢复订阅（${attempted}）")
         }
     }
 
@@ -633,8 +877,8 @@ fun VarStoreScreen(
                 delay(800)
                 continue
             }
-            val connected = withContext(Dispatchers.IO) { runCatching { g.isConnected() }.getOrDefault(false) }
-            if (!connected) {
+            val isConnectedNow = withContext(Dispatchers.IO) { runCatching { g.isConnected() }.getOrDefault(false) }
+            if (!isConnectedNow) {
                 delay(800)
                 continue
             }
@@ -670,6 +914,17 @@ fun VarStoreScreen(
                 return@LaunchedEffect
             } catch (_: Throwable) {
                 delay(800)
+            }
+        }
+    }
+
+    val nodeVarsFiltered by remember {
+        derivedStateOf {
+            val q = nodeVarsQuery.trim().lowercase()
+            if (q.isBlank()) {
+                nodeVarsNames.toList()
+            } else {
+                nodeVarsNames.filter { it.lowercase().contains(q) }
             }
         }
     }
@@ -910,6 +1165,7 @@ fun VarStoreScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Watched Variables", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        OutlinedButton(enabled = !busy, onClick = { openNodeVarsDialog() }) { Text("Node Vars") }
                         FilledTonalButton(enabled = !busy, onClick = { openAddWatch() }) { Text("Add Watch") }
                         OutlinedButton(enabled = !busy, onClick = { loadWatchList() }) { Text("Reload Saved") }
                     }
@@ -1009,6 +1265,8 @@ fun VarStoreScreen(
                             onClick = {
                                 removeLocalKey(key)
                                 saveWatchList()
+                                saveSubPrefsBestEffort()
+                                touchRestoreEpoch()
                                 ui.success("Watch removed.")
                             },
                         ) { Text("Remove") }
@@ -1042,6 +1300,140 @@ fun VarStoreScreen(
                 OutlinedButton(onClick = { cancelOp() }) { Text("Cancel") }
             }
         }
+    }
+
+    if (nodeVarsOpen) {
+        AlertDialog(
+            onDismissRequest = { nodeVarsOpen = false },
+            title = { Text("Node Variables") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Query variables under a node and quickly add them to Watch.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedTextField(
+                        value = nodeVarsOwnerInput,
+                        onValueChange = { nodeVarsOwnerInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Owner NodeID") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilledTonalButton(
+                            enabled = !nodeVarsLoading,
+                            onClick = {
+                                nodeVarsLoading = true
+                                nodeVarsError = ""
+                                val job = scope.launch {
+                                    try {
+                                        val owner = parseNodeVarsOwnerInput()
+                                        val names = listOwnerNames(owner)
+                                        nodeVarsNames.clear()
+                                        nodeVarsNames.addAll(names)
+                                        if (names.isEmpty()) {
+                                            ui.info("该节点当前无可见变量。")
+                                        } else {
+                                            ui.success("已加载 ${names.size} 个变量。")
+                                        }
+                                    } catch (_: CancellationException) {
+                                        // Cancelled by another operation.
+                                    } catch (t: Throwable) {
+                                        nodeVarsError = t.message ?: t.toString()
+                                        ui.error("加载节点变量失败：${nodeVarsError}")
+                                    } finally {
+                                        nodeVarsLoading = false
+                                    }
+                                }
+                                opJob = job
+                            },
+                        ) { Text(if (nodeVarsLoading) "Loading…" else "Load") }
+
+                        OutlinedTextField(
+                            value = nodeVarsQuery,
+                            onValueChange = { nodeVarsQuery = it },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Search") },
+                            singleLine = true,
+                        )
+                    }
+
+                    if (nodeVarsLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    if (nodeVarsError.isNotBlank()) {
+                        Text("Error: $nodeVarsError", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    val owner = nodeVarsOwnerInput.trim().toLongOrNull() ?: 0L
+                    Text(
+                        "Results: ${nodeVarsFiltered.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(items = nodeVarsFiltered, key = { it }) { name ->
+                            val watched = owner > 0 && state.keys.any { it.name == name && it.owner == owner }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("Owner $owner", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (watched) {
+                                        AssistChip(onClick = {}, label = { Text("Watched") })
+                                    }
+                                    OutlinedButton(
+                                        enabled = !nodeVarsLoading && owner > 0 && !watched,
+                                        onClick = {
+                                            val key = VarKey(name = name, owner = owner)
+                                            val added = addWatchKey(key)
+                                            if (!added) {
+                                                ui.info("已在 Watch 中。")
+                                                return@OutlinedButton
+                                            }
+                                            val token = opSeq
+                                            val job = scope.launch {
+                                                runCatching { getVar(token, key) }
+                                            }
+                                            opJob = job
+                                            ui.success("Watch added.")
+                                        },
+                                    ) { Text("Add Watch") }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { nodeVarsOpen = false }) { Text("Close") }
+            },
+        )
     }
 
     if (addMineOpen) {

@@ -23,6 +23,7 @@ object Prefs {
     private const val KEY_AUTH_ROLE = "auth_role"
 
     private const val KEY_VARSTORE_WATCH_LIST = "varstore_watch_list"
+    private const val KEY_VARSTORE_SUB_PREFS = "varstore_sub_prefs"
 
     private const val KEY_TOPICBUS_SUBS = "topicbus.subs"
     private const val KEY_TOPICBUS_MAX_EVENTS = "topicbus.max_events"
@@ -140,6 +141,12 @@ object Prefs {
         val owner: Long,
     )
 
+    data class VarStoreSubPref(
+        val name: String,
+        val owner: Long,
+        val subscribed: Boolean,
+    )
+
     data class TopicBusPrefs(
         val topics: List<String>,
         val maxEvents: Int,
@@ -206,6 +213,47 @@ object Prefs {
         }
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         sp.edit().putString(KEY_VARSTORE_WATCH_LIST, arr.toString()).apply()
+    }
+
+    fun loadVarStoreSubPrefs(context: Context): List<VarStoreSubPref> {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = (sp.getString(KEY_VARSTORE_SUB_PREFS, "") ?: "").trim()
+        if (raw.isBlank()) return emptyList()
+
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val seen = hashSetOf<String>()
+        val out = mutableListOf<VarStoreSubPref>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val name = obj.optString("name", "").trim()
+            val owner = obj.optLong("owner", 0)
+            if (name.isBlank() || owner <= 0) continue
+            val id = "${name}#${owner}"
+            if (!seen.add(id)) continue
+            val subscribed = obj.optBoolean("subscribed", false)
+            out.add(VarStoreSubPref(name = name, owner = owner, subscribed = subscribed))
+        }
+        out.sortWith(compareBy({ it.owner }, { it.name }))
+        return out
+    }
+
+    fun saveVarStoreSubPrefs(context: Context, prefs: List<VarStoreSubPref>) {
+        val seen = hashSetOf<String>()
+        val arr = JSONArray()
+        for (pref in prefs) {
+            val name = pref.name.trim()
+            val owner = pref.owner
+            if (name.isBlank() || owner <= 0) continue
+            val id = "${name}#${owner}"
+            if (!seen.add(id)) continue
+            val obj = JSONObject()
+            obj.put("name", name)
+            obj.put("owner", owner)
+            obj.put("subscribed", pref.subscribed)
+            arr.put(obj)
+        }
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        sp.edit().putString(KEY_VARSTORE_SUB_PREFS, arr.toString()).apply()
     }
 
     fun loadTopicBusPrefs(context: Context): TopicBusPrefs {
