@@ -1,5 +1,7 @@
 package com.myflowhub.android
 
+import java.lang.reflect.Method
+
 class GoClientBridge {
     private val cls: Class<*> = GomobileLoader.loadHubClass()
 
@@ -141,85 +143,83 @@ class GoClientBridge {
         String::class.java,
     )
 
+    private fun invoke(method: Method, vararg args: Any?): Any? =
+        GoReflect.invokeStatic(method, *args)
+
+    private fun invokeString(method: Method, defaultValue: String, vararg args: Any?): String =
+        (invoke(method, *args) as? String) ?: defaultValue
+
+    private fun requireString(method: Method, methodLabel: String, vararg args: Any?): String {
+        val result = invoke(method, *args) as? String
+        if (result == null) {
+            throw IllegalStateException("Go $methodLabel returned null")
+        }
+        return result
+    }
+
     fun ensureInit(workDir: String) {
-        ensureInitMethod.invoke(null, workDir)
+        invoke(ensureInitMethod, workDir)
     }
 
     fun connect(addr: String) {
-        connectMethod.invoke(null, addr)
+        invoke(connectMethod, addr)
     }
 
     fun close() {
-        closeMethod.invoke(null)
+        invoke(closeMethod)
     }
 
-    fun isConnected(): Boolean = (isConnectedMethod.invoke(null) as? Boolean) ?: false
+    fun isConnected(): Boolean = (invoke(isConnectedMethod) as? Boolean) ?: false
 
-    fun lastAddr(): String = (lastAddrMethod.invoke(null) as? String) ?: ""
+    fun lastAddr(): String = invokeString(lastAddrMethod, "")
 
-    fun authState(): String = (authStateMethod.invoke(null) as? String) ?: "{}"
+    fun authState(): String = invokeString(authStateMethod, "{}")
 
     fun clearAuth() {
-        clearAuthMethod.invoke(null)
+        invoke(clearAuthMethod)
     }
 
-    fun ensureKeys(): String = (ensureKeysMethod.invoke(null) as? String) ?: ""
+    fun ensureKeys(): String = invokeString(ensureKeysMethod, "")
 
-    fun getSelfNodeId(): String = (getSelfNodeIdMethod.invoke(null) as? String) ?: "0"
+    fun getSelfNodeId(): String = invokeString(getSelfNodeIdMethod, "0")
 
-    fun lastError(): String = (getLastErrorMethod.invoke(null) as? String) ?: ""
+    fun lastError(): String = runCatching { invokeString(getLastErrorMethod, "") }.getOrDefault("")
 
     fun register(deviceId: String): String {
-        val result = registerMethod.invoke(null, deviceId) as? String
-        if (result == null) {
-            throw IllegalStateException("Go Register returned null")
-        }
-        return result
+        return requireString(registerMethod, "Register", deviceId)
     }
 
     fun login(deviceId: String, nodeId: String): String {
-        val result = loginMethod.invoke(null, deviceId, nodeId) as? String
-        if (result == null) {
-            throw IllegalStateException("Go Login returned null")
-        }
-        return result
+        return requireString(loginMethod, "Login", deviceId, nodeId)
     }
 
     fun listNodes(sourceId: String, targetId: String): String =
-        (listNodesMethod.invoke(null, sourceId, targetId) as? String) ?: "{}"
+        invokeString(listNodesMethod, "{}", sourceId, targetId)
 
     fun listSubtree(sourceId: String, targetId: String): String =
-        (listSubtreeMethod.invoke(null, sourceId, targetId) as? String) ?: "{}"
+        invokeString(listSubtreeMethod, "{}", sourceId, targetId)
 
     fun nodeInfo(sourceId: String, targetId: String): String =
-        (nodeInfoMethod.invoke(null, sourceId, targetId) as? String) ?: "{}"
+        invokeString(nodeInfoMethod, "{}", sourceId, targetId)
 
     fun configList(sourceId: String, targetId: String): String =
-        (configListMethod.invoke(null, sourceId, targetId) as? String) ?: "{}"
+        invokeString(configListMethod, "{}", sourceId, targetId)
 
     fun configGet(sourceId: String, targetId: String, key: String): String =
-        (configGetMethod.invoke(null, sourceId, targetId, key) as? String) ?: "{}"
+        invokeString(configGetMethod, "{}", sourceId, targetId, key)
 
     fun configSet(sourceId: String, targetId: String, key: String, value: String): String =
-        (configSetMethod.invoke(null, sourceId, targetId, key, value) as? String) ?: "{}"
+        invokeString(configSetMethod, "{}", sourceId, targetId, key, value)
 
     fun logsPull(cursor: String, limit: String): String =
-        (logsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
+        invokeString(logsPullMethod, "{}", cursor, limit)
 
     fun varStoreList(sourceId: String, targetId: String, owner: String): String {
-        val result = varStoreListMethod.invoke(null, sourceId, targetId, owner) as? String
-        if (result == null) {
-            throw IllegalStateException("Go VarStoreList returned null")
-        }
-        return result
+        return requireString(varStoreListMethod, "VarStoreList", sourceId, targetId, owner)
     }
 
     fun varStoreGet(sourceId: String, targetId: String, name: String, owner: String): String {
-        val result = varStoreGetMethod.invoke(null, sourceId, targetId, name, owner) as? String
-        if (result == null) {
-            throw IllegalStateException("Go VarStoreGet returned null")
-        }
-        return result
+        return requireString(varStoreGetMethod, "VarStoreGet", sourceId, targetId, name, owner)
     }
 
     fun varStoreSet(
@@ -231,78 +231,46 @@ class GoClientBridge {
         type: String,
         owner: String,
     ): String {
-        val result = varStoreSetMethod.invoke(null, sourceId, targetId, name, value, visibility, type, owner) as? String
-        if (result == null) {
-            throw IllegalStateException("Go VarStoreSet returned null")
-        }
-        return result
+        return requireString(varStoreSetMethod, "VarStoreSet", sourceId, targetId, name, value, visibility, type, owner)
     }
 
     fun varStoreRevoke(sourceId: String, targetId: String, name: String, owner: String): String {
-        val result = varStoreRevokeMethod.invoke(null, sourceId, targetId, name, owner) as? String
-        if (result == null) {
-            throw IllegalStateException("Go VarStoreRevoke returned null")
-        }
-        return result
+        return requireString(varStoreRevokeMethod, "VarStoreRevoke", sourceId, targetId, name, owner)
     }
 
     fun varStoreSubscribe(sourceId: String, targetId: String, name: String, owner: String, subscriber: String): String {
-        val result = varStoreSubscribeMethod.invoke(null, sourceId, targetId, name, owner, subscriber) as? String
-        if (result == null) {
-            throw IllegalStateException("Go VarStoreSubscribe returned null")
-        }
-        return result
+        return requireString(varStoreSubscribeMethod, "VarStoreSubscribe", sourceId, targetId, name, owner, subscriber)
     }
 
     fun varStoreUnsubscribe(sourceId: String, targetId: String, name: String, owner: String, subscriber: String): String {
-        val result = varStoreUnsubscribeMethod.invoke(null, sourceId, targetId, name, owner, subscriber) as? String
-        if (result == null) {
-            throw IllegalStateException("Go VarStoreUnsubscribe returned null")
-        }
-        return result
+        return requireString(varStoreUnsubscribeMethod, "VarStoreUnsubscribe", sourceId, targetId, name, owner, subscriber)
     }
 
     fun varStoreEventsPull(cursor: String, limit: String): String =
-        (varStoreEventsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
+        invokeString(varStoreEventsPullMethod, "{}", cursor, limit)
 
     fun topicBusSubscribe(sourceId: String, targetId: String, topic: String): String {
-        val result = topicBusSubscribeMethod.invoke(null, sourceId, targetId, topic) as? String
-        if (result == null) {
-            throw IllegalStateException("Go TopicBusSubscribe returned null")
-        }
-        return result
+        return requireString(topicBusSubscribeMethod, "TopicBusSubscribe", sourceId, targetId, topic)
     }
 
     fun topicBusSubscribeBatch(sourceId: String, targetId: String, topicsJson: String): String {
-        val result = topicBusSubscribeBatchMethod.invoke(null, sourceId, targetId, topicsJson) as? String
-        if (result == null) {
-            throw IllegalStateException("Go TopicBusSubscribeBatch returned null")
-        }
-        return result
+        return requireString(topicBusSubscribeBatchMethod, "TopicBusSubscribeBatch", sourceId, targetId, topicsJson)
     }
 
     fun topicBusUnsubscribe(sourceId: String, targetId: String, topic: String): String {
-        val result = topicBusUnsubscribeMethod.invoke(null, sourceId, targetId, topic) as? String
-        if (result == null) {
-            throw IllegalStateException("Go TopicBusUnsubscribe returned null")
-        }
-        return result
+        return requireString(topicBusUnsubscribeMethod, "TopicBusUnsubscribe", sourceId, targetId, topic)
     }
 
     fun topicBusUnsubscribeBatch(sourceId: String, targetId: String, topicsJson: String): String {
-        val result = topicBusUnsubscribeBatchMethod.invoke(null, sourceId, targetId, topicsJson) as? String
-        if (result == null) {
-            throw IllegalStateException("Go TopicBusUnsubscribeBatch returned null")
-        }
-        return result
+        return requireString(topicBusUnsubscribeBatchMethod, "TopicBusUnsubscribeBatch", sourceId, targetId, topicsJson)
     }
 
     fun topicBusPublish(sourceId: String, targetId: String, topic: String, name: String, payloadText: String) {
-        topicBusPublishMethod.invoke(null, sourceId, targetId, topic, name, payloadText)
+        invoke(topicBusPublishMethod, sourceId, targetId, topic, name, payloadText)
     }
 
     fun topicBusEventsPull(cursor: String, limit: String): String =
-        (topicBusEventsPullMethod.invoke(null, cursor, limit) as? String) ?: "{}"
+        invokeString(topicBusEventsPullMethod, "{}", cursor, limit)
 
     fun sendAndAwait(
         subProto: String,
@@ -313,6 +281,6 @@ class GoClientBridge {
         expectAction: String,
         timeoutMs: String,
     ): String {
-        return (sendAndAwaitMethod.invoke(null, subProto, sourceId, targetId, action, dataJson, expectAction, timeoutMs) as? String) ?: "{}"
+        return invokeString(sendAndAwaitMethod, "{}", subProto, sourceId, targetId, action, dataJson, expectAction, timeoutMs)
     }
 }
