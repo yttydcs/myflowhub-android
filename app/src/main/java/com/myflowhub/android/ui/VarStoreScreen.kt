@@ -478,9 +478,10 @@ fun VarStoreScreen(
         val g = go ?: throw IllegalStateException("Go AAR unavailable")
         ensureConnected(g)
         val sourceId = parseSelfNodeId()
+        val hubTargetId = parseDefaultTargetId()
         if (ownerId <= 0) throw IllegalStateException("Owner NodeID must be a positive number.")
         val raw = withContext(Dispatchers.IO) {
-            g.varStoreList(sourceId.toString(), ownerId.toString(), ownerId.toString())
+            g.varStoreList(sourceId.toString(), hubTargetId.toString(), ownerId.toString())
         }
         val resp = parseVarResp(raw)
         if (resp.code == 4) return emptyList()
