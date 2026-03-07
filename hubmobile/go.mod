@@ -7,7 +7,7 @@ require github.com/yttydcs/myflowhub-server v0.0.0
 require (
 	github.com/yttydcs/myflowhub-core v0.2.1
 	github.com/yttydcs/myflowhub-proto v0.1.1
-	github.com/yttydcs/myflowhub-sdk v0.1.0
+	github.com/yttydcs/myflowhub-sdk v0.1.2
 	golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4
 )
 
@@ -20,7 +20,7 @@ require (
 	github.com/yttydcs/myflowhub-subproto/forward v0.1.0 // indirect
 	github.com/yttydcs/myflowhub-subproto/management v0.1.2 // indirect
 	github.com/yttydcs/myflowhub-subproto/topicbus v0.1.0 // indirect
-	github.com/yttydcs/myflowhub-subproto/varstore v0.1.1 // indirect
+	github.com/yttydcs/myflowhub-subproto/varstore v0.1.2 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
