@@ -5,14 +5,14 @@ go 1.25.0
 require github.com/yttydcs/myflowhub-server v0.0.0
 
 require (
-	github.com/yttydcs/myflowhub-core v0.2.1
+	github.com/yttydcs/myflowhub-core v0.3.0
 	github.com/yttydcs/myflowhub-proto v0.1.1
 	github.com/yttydcs/myflowhub-sdk v0.1.2
 	golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4
 )
 
 require (
-	github.com/yttydcs/myflowhub-subproto/auth v0.1.1 // indirect
+	github.com/yttydcs/myflowhub-subproto/auth v0.1.2 // indirect
 	github.com/yttydcs/myflowhub-subproto/broker v0.1.0 // indirect
 	github.com/yttydcs/myflowhub-subproto/exec v0.1.0 // indirect
 	github.com/yttydcs/myflowhub-subproto/file v0.1.2 // indirect

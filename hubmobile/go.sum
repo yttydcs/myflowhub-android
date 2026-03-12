@@ -1,13 +1,13 @@
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/yttydcs/myflowhub-core v0.2.1 h1:od6Av+lnccUUBYaq+rzR+B/Ycriw+hy917zSIq41WgM=
-github.com/yttydcs/myflowhub-core v0.2.1/go.mod h1:uUmSQZ3JVVitpQVXA8goupbXpSbd+rahFZjx5x/rS/4=
+github.com/yttydcs/myflowhub-core v0.3.0 h1:RraIxTEjZcYNNppajhzumO/rAzRkxzIGbcPqe929opI=
+github.com/yttydcs/myflowhub-core v0.3.0/go.mod h1:U5sA/hY648GLBdfdyRQ904pW3lwCpzWzs1YEJ9TF9G8=
 github.com/yttydcs/myflowhub-proto v0.1.1 h1:0oVHnHaYbrV6CWQ0mREWMwDDkkUBIpPMTtLw2TjJLY8=
 github.com/yttydcs/myflowhub-proto v0.1.1/go.mod h1:1shJnnAYNZYd1KnGNtvgdygTaeCyx5duMnxrRLRouOc=
 github.com/yttydcs/myflowhub-sdk v0.1.2 h1:M2STeTlqrkR4IPX0oYeRh7lBQU+c9YQyy3013OkYnpg=
 github.com/yttydcs/myflowhub-sdk v0.1.2/go.mod h1:c7tGDERQkNAiYCu+UhfMr+p7vwifz3IYiLeeARaMflU=
-github.com/yttydcs/myflowhub-subproto/auth v0.1.1 h1:+8kC0SpiWDzcx8ar/rQsZQn0Ac47rPiWfqYTC3zyqBU=
-github.com/yttydcs/myflowhub-subproto/auth v0.1.1/go.mod h1:1uc7ye9400zNwOrn9T9lTRCl4j75BcFGZZu63RPIsNQ=
+github.com/yttydcs/myflowhub-subproto/auth v0.1.2 h1:EPObHq69NRr2mAbxmK/QOn7JZ92wIbxG79AMnLhQ11c=
+github.com/yttydcs/myflowhub-subproto/auth v0.1.2/go.mod h1:1uc7ye9400zNwOrn9T9lTRCl4j75BcFGZZu63RPIsNQ=
 github.com/yttydcs/myflowhub-subproto/broker v0.1.0 h1:YnNJ4kMmyl4WgL1o/1X6r54wv8Huamga1Z4yL9gkRgA=
 github.com/yttydcs/myflowhub-subproto/broker v0.1.0/go.mod h1:ZN/xyR7HTixZRC2QeiRjqg69TCkxk+Cyr1+WKTFjnPs=
 github.com/yttydcs/myflowhub-subproto/exec v0.1.0 h1:DhJV3uZHQhLNd/TUgMBJAww/SlWxB64XxyfIgX3LESQ=
