@@ -35,6 +35,8 @@ class GoHubBridge : HubBridge {
 
     init {
         cls = GomobileLoader.loadHubClass()
+        // Best-effort install Bluetooth RFCOMM provider (no-op if AAR is old or method missing).
+        runCatching { BluetoothRfcommProvider.installIfAvailable(cls) }
         startMethod = GoReflect.method(cls, "Start", String::class.java, String::class.java, String::class.java, String::class.java)
         stopMethod = GoReflect.method(cls, "Stop")
         statusMethod = GoReflect.method(cls, "Status")

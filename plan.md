@@ -1,51 +1,68 @@
-# Plan - Android：hubmobile 升级依赖到 Core v0.3.0（对齐 Pipe 抽象重大变更）
+# Plan - Android：RFCOMM（Bluetooth Classic）Provider（供 Core/Server 通过 Pipe 复用）
 
 ## Workflow 信息
 - Repo：`MyFlowHub-Android`
-- 分支：`chore/bump-core-v0.3.0-android-hubmobile`
-- Worktree：`d:\project\MyFlowHub3\worktrees\chore-bump-core-v0.3.0-android-hubmobile\MyFlowHub-Android`
+- 分支：`feat/bluetooth-rfcomm-transport`
+- Worktree：`d:\project\MyFlowHub3\worktrees\feat-bluetooth-rfcomm-transport\repo\MyFlowHub-Android`
 - Base：`main`
-- 关联仓库：
-  - `MyFlowHub-Core`：已发布 `v0.3.0`（重大变更：`IConnection.RawConn()` → `IConnection.Pipe()`）
+- 依赖仓：
+  - `MyFlowHub-Core`：定义 Android RFCOMM Provider 接口（Go），并在 Android build tag 下通过 Provider 实现 dial/listen
+  - `MyFlowHub-Server`：hubruntime 装配 RFCOMM listener（Android 侧运行时依赖本 Provider）
 
 ## 背景 / 问题陈述（事实，可审计）
-- Android 仓库内仅 `hubmobile` 模块依赖 `myflowhub-core`，当前仍固定 `v0.2.1`。
-- Core 已发布 `v0.3.0`（Pipe 抽象重大变更），且其它仓库已逐步完成依赖升级。
-- 若 `hubmobile` 长期锁定旧 Core，将导致跨仓协作时版本不一致，并在 `GOWORK=off` 下潜在出现编译口径差异。
+- Android 平台的 Bluetooth Classic RFCOMM 需要使用 Java/Kotlin API（`BluetoothSocket/BluetoothServerSocket`）。
+- 由于 Go 侧不直接调用 Android 蓝牙栈，本仓需要提供一个“Java 实现 Go interface”的 Provider，并在启动 hub runtime 前注入到 Go（供 Core RFCOMM transport 使用）。
+- 用户确认：Android 默认 `secure=true`（优先安全连接），但允许参数切换。
 
 ## 目标
-1) 将 `hubmobile/go.mod` 中 `github.com/yttydcs/myflowhub-core` 升级到 `v0.3.0`。
-2) 执行 `go mod tidy` 并确保 `GOWORK=off go test ./...` 通过（至少主机平台可编译）。
+1) 实现 Android RFCOMM Provider（Java/Kotlin）：
+  - 支持 listen（服务端 accept）与 dial（客户端 connect）；
+  - UUID-first：固定默认 MyFlowHub UUID；同时支持从参数传入覆盖；
+  - 输出为 Go 可用的“字节流 Pipe”能力（Read/Write/Close）。
+2) 在 app 启动或调用 `Hubmobile.Start()` 前完成 Provider 注入，否则 Go 侧应给出明确错误提示。
+3) 权限/错误信息可诊断：对 Android 12+ 的权限缺失给出可读错误。
 
 ## 非目标
-- 不改 Android UI/业务逻辑/协议语义。
-- 不调整 CI/release workflow（仅做依赖升级；如需额外验证链路另开 workflow）。
+- 本轮不做设备扫描 UI（按设备名解析/MAC 扫描作为未来扩展点）。
+- 不改业务协议/子协议。
 
 ## 验收标准
-- `cd hubmobile; GOWORK=off go test ./... -count=1 -p 1` 通过。
-- `hubmobile/go.mod` 不再引用 `myflowhub-core v0.2.1`。
-- 合并到 `main` 并 push。
+- 代码侧：
+  - `cd hubmobile; GOWORK=off go test ./...` 通过（主机平台编译通过即可）。
+  - `scripts/build_aar.sh` 可构建（如环境具备 Android SDK/NDK）。
+- 手工冒烟（需要真机）：
+  - 两台 Android/或 Android↔PC 之间，通过同一 UUID 建立 RFCOMM 连接；
+  - 连接建立后可完成至少一条 MyFlowHub 帧的收发（配合 Server/SDK 冒烟）。
 
 ## 3.1) 计划拆分（Checklist）
 
-### ANDDEP0 - 归档旧 plan（已执行）
-- 已执行：`git mv plan.md docs/plan_archive/plan_archive_2026-03-12_bump-core-v0.3.0-android-hubmobile-prev.md`
+### AND-BT0 - 归档旧 plan（已执行）
+- 已执行：`git mv plan.md docs/plan_archive/plan_archive_2026-03-12_bluetooth-rfcomm-transport-android-prev.md`
 
-### ANDDEP1 - 升级 hubmobile 的 Core 依赖到 v0.3.0
-- 目标：`hubmobile/go.mod` 中 `github.com/yttydcs/myflowhub-core` 从 `v0.2.1` 升级到 `v0.3.0`，并 tidy。
-- 说明：若升级后出现编译失败（例如 `IConnection` 接口迁移到 `Pipe()`），允许做最小必要适配，但不改变对外行为与协议语义。
-- 涉及文件：`hubmobile/go.mod`、`hubmobile/go.sum`
-- 回滚点：revert 本任务提交。
+### AND-BT1 - Kotlin/Java 实现 RFCOMM Provider（dial + listen）
+- 目标：实现 Provider，满足 Core 定义的 Go interface（gomobile 可绑定的签名），并封装 BluetoothSocket 读写关闭。
+- 涉及模块/文件（预期）：
+  - `app/src/main/java/**`（新增 provider 实现）
+  - `hubmobile/*`（暴露注入入口：如 `SetRFCOMMProvider(...)`）
+- 验收条件：
+  - Provider 可被注入且不崩溃；
+  - 错误路径可读（权限/蓝牙关闭/UUID 无服务等）。
+- 回滚点：revert。
 
-### ANDDEP2 - 回归测试（GOWORK=off）
-- 测试点：
-  - `cd hubmobile; GOWORK=off go test ./... -count=1 -p 1`
+### AND-BT2 - app 集成：启动前注入 Provider
+- 目标：在调用 `Hubmobile.Start()` 前注入 Provider，并按配置决定是否启用 RFCOMM listener/dial。
+- 涉及文件（预期）：
+  - `app/src/main/java/**`（启动逻辑）
+- 验收条件：未注入时能提示；注入后可进入 RFCOMM 逻辑路径。
+- 回滚点：revert。
 
-### ANDDEP3 - Code Review（强制）
-- 逐项审查：需求覆盖/架构/性能/可读性/扩展性/稳定性与安全/测试覆盖。
+### AND-BT3 - Code Review（强制）
+- 审查项：需求覆盖/架构/性能/可读性/扩展性/稳定性与安全/测试覆盖。
 
-### ANDDEP4 - 归档变更（强制）
-- 输出：`docs/change/2026-03-12_bump-core-v0.3.0-android-hubmobile.md`
+### AND-BT4 - 归档变更（强制）
+- 输出：`docs/change/2026-03-12_bluetooth-rfcomm-transport-android.md`
+- 标注：重大变更（新增 Android 蓝牙 transport 接入点）。
 
-### ANDDEP5 - 合并 / push（需 workflow 结束后执行）
+### AND-BT5 - 合并 / push（需 workflow 结束后执行）
 - 在 `repo/MyFlowHub-Android` 合并到 `main` 并 push。
+
