@@ -2,12 +2,12 @@ module github.com/yttydcs/myflowhub-android/hubmobile
 
 go 1.25.0
 
-require github.com/yttydcs/myflowhub-server v0.0.6
+require github.com/yttydcs/myflowhub-server v0.0.7
 
 require (
-	github.com/yttydcs/myflowhub-core v0.3.1
+	github.com/yttydcs/myflowhub-core v0.4.0
 	github.com/yttydcs/myflowhub-proto v0.1.1
-	github.com/yttydcs/myflowhub-sdk v0.1.3
+	github.com/yttydcs/myflowhub-sdk v0.1.4
 	golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4
 )
 
@@ -31,3 +31,5 @@ require (
 // 开发态：在本 meta-workspace 下使用同一 workflow 的 Server worktree。
 // 发布态：可移除此 replace，改为依赖 myflowhub-server 的发布版本。
 replace github.com/yttydcs/myflowhub-server => ../../MyFlowHub-Server
+
+replace github.com/yttydcs/myflowhub-sdk => ../../MyFlowHub-SDK
