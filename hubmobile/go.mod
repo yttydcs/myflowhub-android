@@ -7,7 +7,7 @@ require github.com/yttydcs/myflowhub-server v0.0.13
 require (
 	github.com/yttydcs/myflowhub-core v0.4.9
 	github.com/yttydcs/myflowhub-proto v0.1.5
-	github.com/yttydcs/myflowhub-sdk v0.1.12
+	github.com/yttydcs/myflowhub-sdk v0.1.13
 	golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4
 )
 
