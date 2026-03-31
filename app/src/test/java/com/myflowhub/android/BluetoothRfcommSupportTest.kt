@@ -43,4 +43,29 @@ class BluetoothRfcommSupportTest {
         assertEquals(listOf(Manifest.permission.BLUETOOTH_CONNECT), BluetoothRfcommSupport.requiredRuntimePermissions(31))
         assertEquals(listOf(Manifest.permission.BLUETOOTH_CONNECT), BluetoothRfcommSupport.requiredRuntimePermissions(34))
     }
+
+    @Test
+    fun requiresBluetoothPermissionForHub_matchesParentOrListener() {
+        assertFalse(BluetoothRfcommSupport.requiresBluetoothPermissionForHub("", rfcommListenEnabled = false))
+        assertTrue(BluetoothRfcommSupport.requiresBluetoothPermissionForHub("bt+rfcomm://AA:BB", rfcommListenEnabled = false))
+        assertTrue(BluetoothRfcommSupport.requiresBluetoothPermissionForHub("", rfcommListenEnabled = true))
+    }
+
+    @Test
+    fun normalizeServiceUuid_usesDefaultForBlankAndCanonicalizesValidInput() {
+        assertEquals(
+            BluetoothRfcommSupport.defaultServiceUuid(),
+            BluetoothRfcommSupport.normalizeServiceUuid("   "),
+        )
+        assertEquals(
+            "0eef65b8-9374-42ea-b992-6ee2d0699f5c",
+            BluetoothRfcommSupport.normalizeServiceUuid("0EEF65B8-9374-42EA-B992-6EE2D0699F5C"),
+        )
+    }
+
+    @Test
+    fun isValidServiceUuid_rejectsInvalidUuid() {
+        assertTrue(BluetoothRfcommSupport.isValidServiceUuid(BluetoothRfcommSupport.defaultServiceUuid()))
+        assertFalse(BluetoothRfcommSupport.isValidServiceUuid("not-a-uuid"))
+    }
 }

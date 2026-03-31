@@ -9,6 +9,9 @@ object Prefs {
     private const val PREFS = "hub_prefs"
     private const val KEY_ADDR = "addr"
     private const val KEY_PARENT = "parent"
+    private const val KEY_RFCOMM_ENABLE = "rfcomm_enable"
+    private const val KEY_RFCOMM_UUID = "rfcomm_uuid"
+    private const val KEY_RFCOMM_INSECURE = "rfcomm_insecure"
 
     // Legacy key: before identity split, Hub SelfID and UI DeviceID shared the same storage.
     private const val KEY_SELF_ID_LEGACY = "self_id"
@@ -115,8 +118,18 @@ object Prefs {
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val addr = sp.getString(KEY_ADDR, ":9000") ?: ":9000"
         val parent = sp.getString(KEY_PARENT, "") ?: ""
+        val rfcommUuid = (sp.getString(KEY_RFCOMM_UUID, BluetoothRfcommSupport.defaultServiceUuid()) ?: "")
+            .trim()
+            .ifBlank { BluetoothRfcommSupport.defaultServiceUuid() }
         val identity = ensureIdentity(context)
-        return HubConfig(addr = addr, parentAddr = parent, selfId = identity.hubSelfId)
+        return HubConfig(
+            addr = addr,
+            parentAddr = parent,
+            selfId = identity.hubSelfId,
+            rfcommListenEnabled = sp.getBoolean(KEY_RFCOMM_ENABLE, false),
+            rfcommServiceUuid = rfcommUuid,
+            rfcommInsecure = sp.getBoolean(KEY_RFCOMM_INSECURE, false),
+        )
     }
 
     fun save(context: Context, cfg: HubConfig) {
@@ -125,6 +138,9 @@ object Prefs {
             .putString(KEY_ADDR, cfg.addr)
             .putString(KEY_PARENT, cfg.parentAddr)
             .putString(KEY_HUB_SELF_ID, cfg.selfId)
+            .putBoolean(KEY_RFCOMM_ENABLE, cfg.rfcommListenEnabled)
+            .putString(KEY_RFCOMM_UUID, cfg.rfcommServiceUuid.trim())
+            .putBoolean(KEY_RFCOMM_INSECURE, cfg.rfcommInsecure)
             .apply()
     }
 

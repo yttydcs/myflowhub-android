@@ -31,7 +31,7 @@ type statusDTO struct {
 	LastError string `json:"last_error"`
 }
 
-func Start(addr, parentAddr, selfID, workDir string) (string, error) {
+func Start(addr, parentAddr, selfID, workDir string, rfcommEnable bool, rfcommUUID string, rfcommInsecure bool) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -48,6 +48,9 @@ func Start(addr, parentAddr, selfID, workDir string) (string, error) {
 	opts.ParentEnable = parentAddr != ""
 	opts.SelfID = selfID
 	opts.WorkDir = workDir
+	opts.RFCOMMEnable = rfcommEnable
+	opts.RFCOMMUUID = rfcommUUID
+	opts.RFCOMMInsecure = rfcommInsecure
 	opts.NodeID = 0
 	opts.Logger = globalLogger
 

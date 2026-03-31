@@ -39,6 +39,11 @@ class HubService : Service() {
                     addr = intent.getStringExtra(EXTRA_ADDR) ?: ":9000",
                     parentAddr = intent.getStringExtra(EXTRA_PARENT) ?: "",
                     selfId = intent.getStringExtra(EXTRA_SELF_ID) ?: "",
+                    rfcommListenEnabled = intent.getBooleanExtra(EXTRA_RFCOMM_ENABLE, false),
+                    rfcommServiceUuid = (intent.getStringExtra(EXTRA_RFCOMM_UUID) ?: "")
+                        .trim()
+                        .ifBlank { BluetoothRfcommSupport.defaultServiceUuid() },
+                    rfcommInsecure = intent.getBooleanExtra(EXTRA_RFCOMM_INSECURE, false),
                     workDir = workDir,
                 )
                 startForegroundWithState("Starting…")
@@ -99,6 +104,9 @@ class HubService : Service() {
         const val EXTRA_ADDR = "addr"
         const val EXTRA_PARENT = "parent"
         const val EXTRA_SELF_ID = "self_id"
+        const val EXTRA_RFCOMM_ENABLE = "rfcomm_enable"
+        const val EXTRA_RFCOMM_UUID = "rfcomm_uuid"
+        const val EXTRA_RFCOMM_INSECURE = "rfcomm_insecure"
 
         private const val CHANNEL_ID = "myflowhub"
         private const val NOTIFICATION_ID = 1

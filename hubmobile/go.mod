@@ -17,13 +17,14 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.9.1 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
-	github.com/yttydcs/myflowhub-subproto/auth v0.1.4 // indirect
+	github.com/yttydcs/myflowhub-subproto/auth v0.1.5 // indirect
 	github.com/yttydcs/myflowhub-subproto/broker v0.1.1 // indirect
 	github.com/yttydcs/myflowhub-subproto/exec v0.1.2 // indirect
 	github.com/yttydcs/myflowhub-subproto/file v0.1.4 // indirect
 	github.com/yttydcs/myflowhub-subproto/flow v0.1.2 // indirect
 	github.com/yttydcs/myflowhub-subproto/forward v0.1.1 // indirect
 	github.com/yttydcs/myflowhub-subproto/management v0.1.4 // indirect
+	github.com/yttydcs/myflowhub-subproto/stream v0.1.0 // indirect
 	github.com/yttydcs/myflowhub-subproto/topicbus v0.1.2 // indirect
 	github.com/yttydcs/myflowhub-subproto/varstore v0.1.4 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
@@ -40,3 +41,5 @@ require (
 replace github.com/yttydcs/myflowhub-server => ../../MyFlowHub-Server
 
 replace github.com/yttydcs/myflowhub-sdk => ../../MyFlowHub-SDK
+
+replace github.com/yttydcs/myflowhub-proto => ../../MyFlowHub-Proto

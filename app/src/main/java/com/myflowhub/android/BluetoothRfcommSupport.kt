@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.Context
 import android.os.Build
 import androidx.core.content.ContextCompat
+import java.util.UUID
 
 object BluetoothRfcommSupport {
     private const val RFCOMM_SCHEME = "bt+rfcomm://"
+    private const val DEFAULT_SERVICE_UUID = "0eef65b8-9374-42ea-b992-6ee2d0699f5c"
 
     fun usesRfcommEndpoint(raw: String): Boolean {
         val trimmed = raw.trim()
@@ -15,6 +17,24 @@ object BluetoothRfcommSupport {
 
     fun usesAnyRfcommEndpoint(vararg endpoints: String): Boolean {
         return endpoints.any { usesRfcommEndpoint(it) }
+    }
+
+    fun requiresBluetoothPermissionForHub(parentAddr: String, rfcommListenEnabled: Boolean): Boolean {
+        return rfcommListenEnabled || usesRfcommEndpoint(parentAddr)
+    }
+
+    fun defaultServiceUuid(): String = DEFAULT_SERVICE_UUID
+
+    fun normalizeServiceUuid(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) {
+            return DEFAULT_SERVICE_UUID
+        }
+        return UUID.fromString(trimmed).toString()
+    }
+
+    fun isValidServiceUuid(raw: String): Boolean {
+        return runCatching { normalizeServiceUuid(raw) }.isSuccess
     }
 
     fun requiredRuntimePermissions(sdkInt: Int = Build.VERSION.SDK_INT): List<String> {

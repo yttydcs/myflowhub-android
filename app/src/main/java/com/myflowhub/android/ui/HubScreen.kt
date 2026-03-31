@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -21,6 +22,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -30,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,10 @@ fun HubScreen(
     var state by remember { mutableStateOf(HubState()) }
     var opJob by remember { mutableStateOf<Job?>(null) }
     var busy by remember { mutableStateOf(false) }
+    val needsBluetoothPermission = BluetoothRfcommSupport.requiresBluetoothPermissionForHub(
+        parentAddr = cfg.parentAddr,
+        rfcommListenEnabled = cfg.rfcommListenEnabled,
+    )
 
     DisposableEffect(Unit) {
         val conn = object : ServiceConnection {
@@ -122,8 +129,56 @@ fun HubScreen(
                     placeholder = { Text("127.0.0.1:9000 或 bt+rfcomm://AA:BB:CC:DD:EE:FF?uuid=...") },
                     singleLine = true,
                 )
-                Text("Parent 支持 tcp://host:port、host:port、bt+rfcomm://...；Listen addr 仍为 TCP。")
-                if (BluetoothRfcommSupport.usesRfcommEndpoint(cfg.parentAddr) && !hasBluetoothPermission) {
+                Text("Listen addr 仍为 TCP；可选额外开启 RFCOMM listener。Parent 支持 tcp://host:port、host:port、bt+rfcomm://...")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Enable RFCOMM listener")
+                        Text("启用后会在保留 TCP listener 的同时，增加一个 Bluetooth Classic RFCOMM listener。")
+                    }
+                    Switch(
+                        checked = cfg.rfcommListenEnabled,
+                        onCheckedChange = { enabled ->
+                            val nextUuid = if (enabled && cfg.rfcommServiceUuid.isBlank()) {
+                                BluetoothRfcommSupport.defaultServiceUuid()
+                            } else {
+                                cfg.rfcommServiceUuid
+                            }
+                            onCfgChange(
+                                cfg.copy(
+                                    rfcommListenEnabled = enabled,
+                                    rfcommServiceUuid = nextUuid,
+                                ),
+                            )
+                        },
+                    )
+                }
+                if (cfg.rfcommListenEnabled) {
+                    OutlinedTextField(
+                        value = cfg.rfcommServiceUuid,
+                        onValueChange = { onCfgChange(cfg.copy(rfcommServiceUuid = it)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("RFCOMM service UUID") },
+                        placeholder = { Text(BluetoothRfcommSupport.defaultServiceUuid()) },
+                        singleLine = true,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = cfg.rfcommInsecure,
+                            onCheckedChange = { checked -> onCfgChange(cfg.copy(rfcommInsecure = checked)) },
+                        )
+                        Text("Use insecure RFCOMM listener（不推荐）")
+                    }
+                    if (!BluetoothRfcommSupport.isValidServiceUuid(cfg.rfcommServiceUuid)) {
+                        Text("RFCOMM UUID 格式非法，请填写标准 UUID，或留空以使用默认值。")
+                    }
+                }
+                if (needsBluetoothPermission && !hasBluetoothPermission) {
                     Text(BluetoothRfcommSupport.permissionDeniedMessage())
                 }
                 OutlinedTextField(
@@ -155,27 +210,45 @@ fun HubScreen(
                                 ui.info("Listen addr 不能为空，例如 :9000")
                                 return@FilledTonalButton
                             }
-                            if (BluetoothRfcommSupport.usesRfcommEndpoint(cfg.parentAddr) && !hasBluetoothPermission) {
-                                ui.info("RFCOMM 父链需要蓝牙权限，正在请求授权…")
-                                requestBluetoothPermission()
-                                return@FilledTonalButton
-                            }
                             val currentSelfId = cfg.selfId.trim()
                             if (currentSelfId.isBlank()) {
                                 ui.info("Hub SelfID 不能为空（建议以 -hub 结尾）")
                                 return@FilledTonalButton
                             }
+                            var effectiveCfg = cfg
+                            val updates = mutableListOf<String>()
                             val normalizedSelfId = when {
                                 currentSelfId.endsWith("-hub") -> currentSelfId
                                 currentSelfId.endsWith("-ui") -> currentSelfId.removeSuffix("-ui") + "-hub"
                                 else -> "${currentSelfId}-hub"
                             }
-                            val effectiveCfg = if (normalizedSelfId != currentSelfId) {
-                                onCfgChange(cfg.copy(selfId = normalizedSelfId))
-                                ui.info("已自动修正 Hub SelfID：$normalizedSelfId")
-                                cfg.copy(selfId = normalizedSelfId)
-                            } else {
-                                cfg
+                            if (normalizedSelfId != currentSelfId) {
+                                effectiveCfg = effectiveCfg.copy(selfId = normalizedSelfId)
+                                updates += "已自动修正 Hub SelfID：$normalizedSelfId"
+                            }
+                            if (effectiveCfg.rfcommListenEnabled) {
+                                val normalizedUuid = runCatching {
+                                    BluetoothRfcommSupport.normalizeServiceUuid(effectiveCfg.rfcommServiceUuid)
+                                }.getOrNull()
+                                if (normalizedUuid == null) {
+                                    ui.info("RFCOMM UUID 格式非法，请填写标准 UUID，或留空以使用默认值。")
+                                    return@FilledTonalButton
+                                }
+                                if (normalizedUuid != effectiveCfg.rfcommServiceUuid) {
+                                    effectiveCfg = effectiveCfg.copy(rfcommServiceUuid = normalizedUuid)
+                                    updates += "已规范化 RFCOMM UUID：$normalizedUuid"
+                                }
+                            }
+                            if (effectiveCfg != cfg) {
+                                onCfgChange(effectiveCfg)
+                            }
+                            updates.forEach(ui::info)
+                            if (BluetoothRfcommSupport.requiresBluetoothPermissionForHub(effectiveCfg.parentAddr, effectiveCfg.rfcommListenEnabled) &&
+                                !hasBluetoothPermission
+                            ) {
+                                ui.info("RFCOMM 监听或父链需要蓝牙权限，正在请求授权…")
+                                requestBluetoothPermission()
+                                return@FilledTonalButton
                             }
                             opJob?.cancel()
                             val previousError = state.lastError
@@ -326,6 +399,9 @@ private fun startHubService(context: Context, cfg: HubConfig) {
         putExtra(HubService.EXTRA_ADDR, cfg.addr)
         putExtra(HubService.EXTRA_PARENT, cfg.parentAddr)
         putExtra(HubService.EXTRA_SELF_ID, cfg.selfId)
+        putExtra(HubService.EXTRA_RFCOMM_ENABLE, cfg.rfcommListenEnabled)
+        putExtra(HubService.EXTRA_RFCOMM_UUID, cfg.rfcommServiceUuid)
+        putExtra(HubService.EXTRA_RFCOMM_INSECURE, cfg.rfcommInsecure)
     }
     ContextCompat.startForegroundService(context, intent)
 }

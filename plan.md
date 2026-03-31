@@ -1,285 +1,394 @@
-# Plan - Android：RFCOMM 基本可用性补齐
+# Plan - Android：RFCOMM listener 配置化
 
 ## Workflow Information
 - Repo: `MyFlowHub-Android`
-- Branch: `fix/android-rfcomm-basic-usability`
-- Base: `origin/main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android`
+- Branch: `feat/android-rfcomm-listen`
+- Base: `main`（本地 `main` 已包含 `1df0828 fix: 补齐 Android RFCOMM 基本可用性`）
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android`
 - Current Stage: `4`
 
 ## Stage Records
 
 ### Initialization
-- guide.md: `D:\project\MyFlowHub3\guide.md`，已读取；commit 信息需使用中文。
+- guide.md: `D:\project\MyFlowHub3\guide.md`，已读取；commit 信息需使用中文；所有 worktree 必须位于 `D:\project\MyFlowHub3\worktrees\`。
 - base/worktree confirmation:
-  - 主仓 `repo/MyFlowHub-Android` 当前分支为 `main`
-  - 已创建专用 worktree：`D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android`
-  - 本 workflow 仅在该 worktree 内实现与验证
+  - Android 主执行仓：`D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android`
+  - 依赖仓（仅用于 `hubmobile/go.mod` 的相对 `replace`，本轮不计划改代码）：
+    - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Server`
+    - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-SDK`
+    - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Proto`
+  - 本 workflow 的实现代码仅允许写入 Android worktree；Server / SDK 仅作为构建依赖，除非主计划扩展，否则禁止顺手修改。
+- cross-repo dependency records:
+  - `MyFlowHub-Server`
+    - Branch: `chore/android-rfcomm-listen-deps`
+    - Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Server`
+    - Control doc: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Server\todo.md`
+    - Ownership boundary: 仅为 `hubmobile` 编译提供本地 `replace` 目标，不做实现变更
+  - `MyFlowHub-SDK`
+    - Branch: `chore/android-rfcomm-listen-deps`
+    - Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-SDK`
+    - Control doc: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-SDK\todo.md`
+    - Ownership boundary: 仅为 `hubmobile` 编译提供本地 `replace` 目标，不做实现变更
+  - `MyFlowHub-Proto`
+    - Branch: `chore/android-rfcomm-listen-deps`
+    - Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Proto`
+    - Control doc: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Proto\todo.md`
+    - Ownership boundary: 仅为本地验证提供未发布的 `protocol/stream` 包，不做实现变更
 
 ### Stage 1 - Requirements Analysis
 #### Goal
-- 提升 Android 端 Bluetooth Classic RFCOMM 的基本可用性，确保用户在使用 `bt+rfcomm://...` 端点时不会因为缺少权限或 UI 误导而直接失败。
+- 让 Android Hub 将已有的 RFCOMM listener 底层能力产品化为“可配置、可启动、可诊断”的最小可用路径，使用户可以在保留 TCP listener 的同时，可选启用 RFCOMM listener。
 
 #### Scope
 - 必须
-  - 补齐 AndroidManifest 中 RFCOMM 所需的蓝牙权限声明。
-  - 为 Android 12+ 的 RFCOMM 使用路径补齐运行时权限申请。
-  - 在 Login / Hub 入口对 RFCOMM 端点做最小可用的权限前置检查，避免直接触发底层失败。
-  - 将 UI 文案从“仅 `ip:port`”修正为明确支持 endpoint，包括 `bt+rfcomm://...`。
-  - 当权限缺失时返回可诊断提示，而不是仅暴露底层反射或系统异常。
+  - 在 Android Hub 配置模型中新增 RFCOMM listener 配置位，并持久化到 `Prefs`。
+  - 在 Hub UI 暴露最小必要配置：`RFCOMMEnable`、`RFCOMMUUID`、`RFCOMMInsecure`。
+  - 在启动 Hub 前，对“RFCOMM parent”或“启用 RFCOMM listener”的场景统一做蓝牙权限前置检查。
+  - 将新配置从 `HubScreen -> HubService -> HubBridge -> hubmobile.Start -> hubruntime.Options` 全链路传递。
+  - 对旧 AAR / 旧 `Start(...)` 签名给出显式兼容或错误提示，避免无声失效。
+  - 重建 `app/libs/myflowhub.aar` 并完成最小测试 / 构建回归。
 - 可选
-  - 在 UI 中展示当前 RFCOMM 权限状态的轻量提示。
-  - 为纯逻辑 helper 增加本地单元测试。
+  - 在 UI 上增加轻量配置说明或默认值提示。
+  - 在状态区展示配置层面的 RFCOMM listener 信息（仅在低成本时考虑）。
 - 不做
-  - 不实现 BLE/GATT。
-  - 不实现蓝牙扫描、配对引导、按设备名发现。
-  - 不改 Core / SDK / Server 的 RFCOMM 语义。
-  - 不扩展 Android Hub 的 RFCOMM listen 产品化配置。
+  - 不扩展 `RFCOMMChannel`、`RFCOMMAdapter` 等高级配置。
+  - 不改 Server / SDK / Core 的 RFCOMM 行为。
+  - 不新增 BLE/GATT、扫描、配对引导。
+  - 不改变当前 parent self-register 仅支持 TCP endpoint 的既有限制。
+  - 不把运行态 listener 观测面扩展成完整状态面板，除非实现最小可用所必需。
 
 #### Use Cases
-- 用户在 Login 页填写 `bt+rfcomm://AA:BB:CC:DD:EE:FF?...` 并发起 Connect。
-- 用户在 Hub 页填写 RFCOMM 父链 endpoint 并启动 Hub。
-- Android 12+ 首次使用 RFCOMM 时，App 能请求蓝牙权限并给出下一步提示。
-- 用户继续使用 TCP 时，不应被蓝牙权限流程打扰。
+- 用户继续使用默认 TCP listener，仅填写 `:9000`，行为保持不变。
+- 用户在 Hub 页面开启 RFCOMM listener，使用默认或自定义 UUID，并仍保留 TCP listener。
+- 用户同时配置 RFCOMM parent endpoint 与 RFCOMM listener，启动前只触发一次蓝牙权限检查。
+- 用户在旧 AAR 仍未更新时尝试启用 RFCOMM listener，App 会明确提示需要更新本地 AAR，而不是悄悄退化。
 
 #### Functional Requirements
-- Manifest 必须声明 RFCOMM 使用所需蓝牙权限，并兼容 Android 12+ 与旧版本。
-- 只有在当前输入 endpoint 走 RFCOMM 时，才触发运行时蓝牙权限申请。
-- 若权限未授予，Connect / Start 不应继续调用底层 RFCOMM 逻辑。
-- Login / Hub 页输入框与提示文案必须明确 endpoint 语义，而不是只写 `ip:port`。
-- RFCOMM Provider 在缺少蓝牙权限时，应返回清晰错误信息。
+- `HubConfig` 必须包含 RFCOMM listener 开关、UUID、insecure 选项，并提供合理默认值。
+- `Prefs.load/save` 必须持久化上述字段，且对未升级用户保持兼容默认值。
+- `HubScreen` 必须允许用户启停 RFCOMM listener，并编辑 UUID。
+- 若启用 RFCOMM listener 且蓝牙权限缺失，Start 不得继续执行底层启动逻辑。
+- RFCOMM UUID 输入非法时，UI 必须在启动前显式报错。
+- `HubService` 必须通过 extras 传递新增字段。
+- `HubBridge` 必须优先调用新签名的 `Start(...)`；若仅存在旧签名，则在未启用 RFCOMM listener 时保持兼容，在启用时返回明确错误。
+- `hubmobile.Start(...)` 必须把 RFCOMM listener 配置写入 `hubruntime.Options`。
 
 #### Non-functional Requirements
-- 保持 TCP 路径行为不变。
-- 采用最小改动面，不引入新的第三方 UI/权限库。
-- 失败路径必须显式、可观测，不静默吞错。
-- 权限申请默认采用按需触发，避免对 TCP-only 用户造成无谓打扰。
+- 保持 TCP-only 路径不受影响。
+- 默认安全值应与 Server 保持一致：RFCOMM listener 默认关闭，启用时 `insecure=false`。
+- 改动面保持最小，不引入新的三方库或额外后台流程。
+- 失败路径必须显式、可诊断，不允许静默回退。
 
 #### Inputs / Outputs
 - 输入
-  - Login 页 `targetAddr`
-  - Hub 页 `parentAddr`
-  - Android 运行时权限授予结果
+  - `HubConfig.addr`
+  - `HubConfig.parentAddr`
+  - `HubConfig.rfcommListenEnabled`
+  - `HubConfig.rfcommServiceUuid`
+  - `HubConfig.rfcommInsecure`
+  - Android 蓝牙权限授予结果
+  - 本地 AAR 中 `Hubmobile.Start` 的实际签名
 - 输出
-  - 成功时：继续执行既有 Connect / Start 流程
-  - 失败时：UI Snackbar / 状态文本显示明确错误
+  - 成功时：Hub 以 TCP-only 或 TCP+RFCOMM listener 启动
+  - 失败时：UI / HubState 返回明确错误（权限缺失、UUID 非法、AAR 过旧等）
 
 #### Edge Cases
-- Android 12+ 用户拒绝蓝牙权限。
-- 用户输入仍为 TCP 地址。
-- 蓝牙权限已授予，但系统蓝牙未开启。
-- 输入为非法 RFCOMM endpoint。
-- Go AAR 不可用时，不应把问题误报为蓝牙权限问题。
+- 用户启用 RFCOMM listener，但 UUID 为空或格式非法。
+- 用户只启用 TCP listener，不应被 RFCOMM 权限逻辑打扰。
+- 用户同时配置 RFCOMM parent 与 listener，权限缺失时只报一次明确前置错误。
+- 本地 `app/libs/myflowhub.aar` 仍为旧版本，不包含新 `Start(...)` 签名。
+- 蓝牙权限已授予但系统蓝牙未开启，此类错误应继续由底层 provider / runtime 返回明确诊断。
 
 #### Acceptance Criteria
-- `app/src/main/AndroidManifest.xml` 包含 RFCOMM 相关权限声明。
-- Android 12+ 上，当 `targetAddr` 或 `parentAddr` 使用 `bt+rfcomm://` 且权限缺失时，UI 会先请求权限并阻止继续执行。
-- Login / Hub 的输入提示明确支持 `bt+rfcomm://...` endpoint。
-- 缺少权限导致的 RFCOMM 失败信息可被用户直接理解。
-- 至少完成一条自动验证链路与一条构建验证链路。
+- Hub 页面可以开启 / 关闭 RFCOMM listener，并编辑 UUID / insecure 选项。
+- `Prefs` 能在页面重开后恢复上述配置。
+- 启动时可将 RFCOMM listener 配置正确传到 `hubruntime.Options.RFCOMMEnable/RFCOMMUUID/RFCOMMInsecure`。
+- RFCOMM listener 启用且权限缺失时，Start 会被阻止并提示授权。
+- 旧 AAR 场景下不会悄悄忽略 listener 配置，而是给出明确错误。
+- 自动验证至少覆盖新增 helper / bridge 逻辑；并完成 AAR 重建与 `:app:assembleDebug`。
 
 #### Risks
-- Android 权限策略按 API 版本分叉，处理不当可能误伤旧版本行为。
-- 如果权限检查只放在 UI，未来新增 RFCOMM 入口可能遗漏；需在 provider 侧保留清晰兜底错误。
+- `hubmobile` 改签名后，如果本地 AAR 未重建，Android 反射调用会出现方法不匹配。
+- RFCOMM UUID 默认值如果在多处硬编码，后续与 Server 漂移会产生隐性兼容风险；应集中在 helper/配置层管理。
+- `hubmobile/go.mod` 依赖相对 `replace`，构建验证依赖同层 Server / SDK worktree 保持可用。
 
 #### Issue List
 - 无
 
 ### Stage 2 - Architecture Design
 #### Overall Solution
-- 采用“UI 入口按需申请 + Provider 错误兜底 + 文案修正”的最小闭环方案。
+- 采用“Android 配置模型扩展 + 启动前输入/权限校验 + Bridge 双签名兼容 + hubmobile 最小参数扩展”的方案。
 - 选型理由：
-  - 按需申请只在 RFCOMM 端点触发，避免对 TCP-only 用户造成打扰。
-  - Provider 保留权限异常兜底，避免未来新增入口绕过 UI 时出现难排查错误。
-  - 文案修正能把现有隐式支持变成可发现的能力。
+  - 直接对齐现有 `hubruntime.Options` 字段，避免发明新的中间编码协议。
+  - 在 Android 侧先做权限和 UUID 校验，能把错误前移到用户动作点。
+  - 通过 `HubBridge` 同时兼容新旧 `Start(...)` 签名，可避免 stale AAR 下直接崩溃，同时保持 TCP-only 场景可继续运行。
 
 #### Alternatives Considered
-- 方案 A：App 启动即统一申请蓝牙权限
-  - 优点：实现简单
-  - 缺点：即便用户只用 TCP 也会被打扰，不符合最小侵入原则
-- 方案 B：只补 Manifest，不做 UI 申请
-  - 优点：改动最小
-  - 缺点：Android 12+ 仍然不可用，无法满足“基本可用性”
-- 采用方案：按 RFCOMM 端点按需申请 + provider 兜底
+- 方案 A：把 RFCOMM listener 配置编码进 `addr` 字符串
+  - 优点：少改参数
+  - 缺点：混淆 TCP addr 与 listener 语义，难以校验与持久化，不可维护
+- 方案 B：一次性暴露完整 Server RFCOMM 配置面（adapter/channel/insecure/uuid）
+  - 优点：能力最完整
+  - 缺点：超出 Android 当前“基本可用”目标，UI 复杂度和误用风险偏高
+- 方案 C：仅改 `hubmobile` / runtime，不改 Android UI
+  - 优点：代码变更看起来更少
+  - 缺点：用户无法发现和配置 listener，不满足产品化目标
+- 采用方案：最小 UI 配置面 + 双签名兼容 + 全链路显式传参
 
 #### Module Responsibilities
+- `app/src/main/java/com/myflowhub/android/HubConfig.kt`
+  - 新增 RFCOMM listener 配置字段与默认值承载。
+- `app/src/main/java/com/myflowhub/android/Prefs.kt`
+  - 负责 RFCOMM listener 配置持久化与默认值兼容。
 - `app/src/main/java/com/myflowhub/android/BluetoothRfcommSupport.kt`
-  - 统一 RFCOMM endpoint 判断、权限集合和权限状态检查。
-- `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-  - 持有蓝牙权限状态与请求 launcher，并下发给页面。
-- `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
-  - Connect 前识别 RFCOMM endpoint，必要时先请求权限并提示。
+  - 统一 RFCOMM scheme 判断、默认 UUID、权限判断、UUID 校验文案。
 - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
-  - Start 前识别 RFCOMM 父链 endpoint，必要时先请求权限并提示。
-- `app/src/main/java/com/myflowhub/android/BluetoothRfcommProvider.kt`
-  - 将底层 `SecurityException` 归一化为明确错误。
-- `app/src/main/AndroidManifest.xml`
-  - 声明蓝牙权限。
+  - 暴露 RFCOMM listener 配置 UI，并在 Start 前做输入与权限校验。
+- `app/src/main/java/com/myflowhub/android/HubService.kt`
+  - 接收新增 extras，构造完整 `HubConfig`。
+- `app/src/main/java/com/myflowhub/android/HubBridge.kt`
+  - 反射加载新旧 `Start(...)` 签名，并在旧 AAR + listener 配置场景下显式失败。
+- `hubmobile/hubmobile.go`
+  - 扩展 `Start(...)` 参数并映射到 `hubruntime.Options`。
+- `app/src/test/**`
+  - 覆盖新增 helper / bridge 兼容逻辑。
 
 #### Data / Call Flow
-1. 用户在 Login / Hub 页面输入 endpoint。
-2. 页面调用 RFCOMM helper 判断是否为 `bt+rfcomm://...`。
-3. 若当前路径需要 RFCOMM 且权限未授予：
-   - 触发权限请求
-   - UI 给出提示并中止当前操作
-4. 若权限已就绪：
-   - 继续调用既有 `GoClientBridge.connect()` 或 `HubService` 启动流程
-5. 若底层仍因权限问题抛出异常：
-   - `BluetoothRfcommProvider` 转换为清晰错误并返回 UI
+1. `Prefs.load()` 读取 Hub 基础配置与 RFCOMM listener 配置，填充 `HubConfig`。
+2. 用户在 `HubScreen` 修改配置并即时保存。
+3. 点击 Start 时：
+   - 校验 `addr` / `selfId`
+   - 若启用了 RFCOMM listener，校验 UUID
+   - 若 `parentAddr` 是 RFCOMM 或启用了 RFCOMM listener，检查蓝牙权限
+4. `startHubService()` 通过 intent extras 传递完整 `HubConfig`。
+5. `HubService` 构造 `HubConfig` 并调用 `HubBridge.start(config)`。
+6. `GoHubBridge`
+   - 优先走新 `Start(addr, parentAddr, selfId, workDir, rfcommEnable, rfcommUuid, rfcommInsecure)`
+   - 若只存在旧签名且当前未启用 RFCOMM listener，则回退旧调用
+   - 若只存在旧签名且启用了 RFCOMM listener，则返回明确错误
+7. `hubmobile.Start(...)` 构造 `hubruntime.Options`，写入 RFCOMM listener 相关字段并启动 runtime。
 
 #### Interface Drafts
-- `BluetoothRfcommSupport.usesRfcommEndpoint(raw: String): Boolean`
-- `BluetoothRfcommSupport.requiredRuntimePermissions(sdkInt: Int): List<String>`
-- `BluetoothRfcommSupport.hasRuntimePermissions(context: Context): Boolean`
-- `LoginScreen(..., hasBluetoothPermission: Boolean, requestBluetoothPermission: () -> Unit)`
-- `HubScreen(..., hasBluetoothPermission: Boolean, requestBluetoothPermission: () -> Unit)`
+- `data class HubConfig(..., rfcommListenEnabled: Boolean = false, rfcommServiceUuid: String = BluetoothRfcommSupport.defaultServiceUuid(), rfcommInsecure: Boolean = false)`
+- `BluetoothRfcommSupport.defaultServiceUuid(): String`
+- `BluetoothRfcommSupport.normalizeServiceUuid(raw: String): String`
+- `BluetoothRfcommSupport.isValidServiceUuid(raw: String): Boolean`
+- `HubService.EXTRA_RFCOMM_ENABLE / EXTRA_RFCOMM_UUID / EXTRA_RFCOMM_INSECURE`
+- `hubmobile.Start(addr string, parentAddr string, selfID string, workDir string, rfcommEnable bool, rfcommUUID string, rfcommInsecure bool) (string, error)`
 
 #### Error Handling and Safety
-- 仅对 RFCOMM endpoint 触发蓝牙权限逻辑。
-- 权限缺失时优先给出“需要蓝牙权限”的明确提示，不直接落到底层异常。
-- provider 侧对 `SecurityException` 做消息归一化，防止反射包装异常污染用户提示。
+- RFCOMM listener 仅在用户显式开启时生效。
+- UUID 非法时在 UI 入口前置失败，避免把错误延后到底层 listener 创建。
+- 旧 AAR 只允许在 TCP-only 场景继续兼容；涉及 RFCOMM listener 配置时必须显式报错。
+- `rfcommInsecure` 默认 `false`，避免默认放宽安全性。
 
 #### Performance and Testing Strategy
-- 权限检查仅在用户点击 Connect / Start 时执行，不引入后台轮询。
-- 自动验证：
-  - 新增 helper 纯逻辑单元测试
-  - 运行 `gradlew.bat testDebugUnitTest`
-- 构建验证：
-  - 运行 `gradlew.bat :app:assembleDebug`
+- 配置读取 / 保存沿用 SharedPreferences，不增加额外 I/O 通道。
+- 权限检查仅在用户点击 Start 时执行，不增加后台轮询。
+- 自动验证计划：
+  - `GOWORK=off go test ./... -count=1 -p 1`（`hubmobile/`）
+  - `.\scripts\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar`
+  - `.\gradlew.bat testDebugUnitTest`
+  - `.\gradlew.bat :app:assembleDebug`
 
 #### Extensibility Design Points
-- endpoint 判断与权限集合收敛到单一 helper，后续若加入 `BLUETOOTH_SCAN` 或更多 RFCOMM UI 入口，可复用同一逻辑。
-- UI 通过参数接收权限状态与请求函数，避免页面内部直接依赖 Activity。
+- 先只暴露 `enable/uuid/insecure`，后续若确实需要 `adapter/channel`，可以在 `HubConfig` 和 `HubService` 继续向后兼容扩展。
+- `GoHubBridge` 的双签名反射层可复用到后续 gomobile API 渐进升级场景。
+- RFCOMM 默认 UUID 和校验逻辑集中在 helper，减少与 Server 默认值漂移的风险。
 
 #### Issue List
 - 无
 
 ### Stage 3.1 - Planning
 #### Project Goal and Current State
-- 当前 Android 已具备 RFCOMM provider 与 Go bridge，但缺少蓝牙权限声明和运行时授权流程，且 Login / Hub UI 文案仍偏向 TCP。
-- 本次目标是把 Android RFCOMM 从“代码层隐式存在”提升到“用户可实际走通的最小可用状态”。
+- 当前 Android 已具备：
+  - RFCOMM provider 的 dial + listen 底层能力
+  - parent RFCOMM 的基础可用性与权限闭环
+- 当前仍缺：
+  - Hub listener 配置模型、UI、持久化、Service extras、Bridge 参数与 `hubmobile` 显式传参
+- 本次目标是把“Server 已支持但 Android 未产品化暴露”的 RFCOMM listener 收口为最小可用链路。
 
 #### Docs Governance Routing Decision
+- 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
 - Requirements impact: `none`
 - Specs impact: `none`
 - Related requirements: `none`
 - Related specs:
   - `docs/change/2026-03-12_bluetooth-rfcomm-transport-android.md`
-- Related lessons: `none`
+  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\change\2026-03-12_bluetooth-rfcomm-transport-server.md`
+- Related lessons:
+  - `docs/lessons/android-rfcomm-permission.md`
 - 文档路由：
-  - 执行计划保留在 worktree 根 `plan.md`
-  - 完成结果归档到 `docs/change/YYYY-MM-DD_android-rfcomm-basic-usability.md`
+  - 当前 workflow 控制文档保留在 worktree 根 `plan.md`
+  - 完成结果归档到 `docs/change/2026-03-31_android-rfcomm-listener-config.md`
+  - 若本轮沉淀出新的“旧 AAR / Start 签名漂移”排查规则，再决定是否补充 `docs/lessons`
 
 #### Related Requirements / Specs / Lessons
-- 参考：
+- Android 参考：
   - `docs/change/2026-03-12_bluetooth-rfcomm-transport-android.md`
-  - `docs/change/2026-02-27_android-hub-ui-v1.md`
-  - `docs/change/2026-02-27_android-fgs-type-gomobile-reflect.md`
+  - `docs/change/2026-03-31_android-rfcomm-basic-usability.md`
+  - `docs/lessons/android-rfcomm-permission.md`
+- Server 参考：
+  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\change\2026-03-12_bluetooth-rfcomm-transport-server.md`
 
 #### Executable Task List
-- [x] `ANDBT-1`：新增 RFCOMM 权限 helper 与 Manifest 权限声明
-- [x] `ANDBT-2`：在 AppRoot / Login / Hub 接入按需蓝牙权限申请
-- [x] `ANDBT-3`：修正 RFCOMM 输入文案与 provider 错误提示
-- [x] `ANDBT-4`：补充自动测试并完成构建验证
-- [x] `ANDBT-5`：Code Review
-- [x] `ANDBT-6`：归档 `docs/change`
+- [x] `ANDRFL-1`：更新控制文档与依赖 worktree 边界
+- [x] `ANDRFL-2`：扩展 Hub 配置模型、Prefs、Helper 与 Hub UI
+- [x] `ANDRFL-3`：扩展 Service / Bridge / hubmobile 启动链路并处理旧 AAR 兼容
+- [x] `ANDRFL-4`：补测试并完成 Go / AAR / Android 构建验证
+- [x] `ANDRFL-5`：Code Review
+- [x] `ANDRFL-6`：归档 `docs/change`，必要时更新 `docs/lessons`
 
 #### Task Details
-##### ANDBT-1 - 权限与 helper 基座
+##### ANDRFL-1 - 控制文档与依赖边界
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android\plan.md`
-- Goal: 补齐 RFCOMM 运行所需权限声明，并集中 RFCOMM 判断与权限逻辑。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android\plan.md`
+- Goal: 让当前 workflow、依赖 worktree、docs 路由和回滚边界可审计。
 - Files / Modules:
-  - `app/src/main/AndroidManifest.xml`
+  - `plan.md`
+  - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Server\todo.md`
+  - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-SDK\todo.md`
+  - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Proto\todo.md`
+- Write Set:
+  - `plan.md`
+  - `..\MyFlowHub-Server\todo.md`
+  - `..\MyFlowHub-SDK\todo.md`
+  - `..\MyFlowHub-Proto\todo.md`
+- Acceptance:
+  - 当前执行边界、依赖边界、docs impact 记录完整
+  - 依赖仓 control doc 明确为 dependency-only
+- Test Points:
+  - `git status --short --branch`
+- Rollback:
+  - 回退上述文档文件
+
+##### ANDRFL-2 - Hub 配置面与 UI
+- Owner: `main`
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android\plan.md`
+- Goal: 在不扩展高级参数的前提下，让 Android 用户可以配置 RFCOMM listener。
+- Files / Modules:
+  - `app/src/main/java/com/myflowhub/android/HubConfig.kt`
+  - `app/src/main/java/com/myflowhub/android/Prefs.kt`
   - `app/src/main/java/com/myflowhub/android/BluetoothRfcommSupport.kt`
+  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
 - Write Set:
-  - `app/src/main/AndroidManifest.xml`
+  - `app/src/main/java/com/myflowhub/android/HubConfig.kt`
+  - `app/src/main/java/com/myflowhub/android/Prefs.kt`
   - `app/src/main/java/com/myflowhub/android/BluetoothRfcommSupport.kt`
-- Acceptance:
-  - RFCOMM 所需 Manifest 权限已声明
-  - helper 能识别 RFCOMM endpoint，并判断当前 API 是否需要运行时权限
-- Test Points:
-  - 本地单元测试覆盖 endpoint 识别与权限决策
-- Rollback:
-  - 回退上述文件
-
-##### ANDBT-2 - UI 权限申请接入
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android\plan.md`
-- Goal: 让 Login / Hub 在 RFCOMM 路径下按需请求蓝牙权限。
-- Files / Modules:
-  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
-- Write Set:
-  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
   - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
 - Acceptance:
-  - RFCOMM Connect / Start 在权限缺失时会先请求权限并中止当前操作
-  - TCP 路径不受影响
+  - UI 可启用 RFCOMM listener 并编辑 UUID / insecure
+  - Prefs 可持久化配置
+  - Start 前会做 UUID 与权限校验
 - Test Points:
-  - 单元测试 + `:app:assembleDebug`
+  - `.\gradlew.bat testDebugUnitTest`
 - Rollback:
-  - 回退上述文件
+  - 回退上述 Android 文件
 
-##### ANDBT-3 - 文案与错误可诊断性
+##### ANDRFL-3 - 启动链路与旧 AAR 兼容
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android\plan.md`
-- Goal: 让用户知道可以输入 RFCOMM endpoint，并在权限异常时看到清晰报错。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android\plan.md`
+- Goal: 把 RFCOMM listener 配置可靠地传到 `hubruntime`，并显式处理新旧 `Start(...)` 签名差异。
 - Files / Modules:
-  - `app/src/main/java/com/myflowhub/android/BluetoothRfcommProvider.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
+  - `app/src/main/java/com/myflowhub/android/HubService.kt`
+  - `app/src/main/java/com/myflowhub/android/HubBridge.kt`
+  - `hubmobile/hubmobile.go`
 - Write Set:
-  - `app/src/main/java/com/myflowhub/android/BluetoothRfcommProvider.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/LoginScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
+  - `app/src/main/java/com/myflowhub/android/HubService.kt`
+  - `app/src/main/java/com/myflowhub/android/HubBridge.kt`
+  - `hubmobile/hubmobile.go`
 - Acceptance:
-  - 输入提示明确支持 `bt+rfcomm://...`
-  - 权限异常报错不再只是底层异常
+  - 新 AAR 场景下 RFCOMM listener 配置进入 `hubruntime.Options`
+  - 旧 AAR 场景下 TCP-only 可兼容，listener 场景显式失败
 - Test Points:
-  - 构建通过
+  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
+  - `.\scripts\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar`
 - Rollback:
-  - 回退上述文件
+  - 回退上述文件与重建后的 `app/libs/myflowhub.aar`
 
-##### ANDBT-4 - 测试与验证
+##### ANDRFL-4 - 验证与回归
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-rfcomm-basic-usability\MyFlowHub-Android\plan.md`
-- Goal: 为新增 helper 提供自动验证，并跑通最小构建回归。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Android\plan.md`
+- Goal: 证明 helper、hubmobile 和 Android APK 均可通过最小回归。
 - Files / Modules:
-  - `app/build.gradle.kts`
-  - `app/src/test/**`（如需新增）
-- Write Set:
-  - `app/build.gradle.kts`
+  - `hubmobile/go.mod`
+  - `hubmobile/go.sum`
   - `app/src/test/**`
+  - `app/libs/myflowhub.aar`
+- Write Set:
+  - `hubmobile/go.mod`
+  - `hubmobile/go.sum`
+  - `app/src/test/**`
+  - `app/libs/myflowhub.aar`
 - Acceptance:
-  - `gradlew.bat testDebugUnitTest` 通过
-  - `gradlew.bat :app:assembleDebug` 通过
+  - Go / AAR / Android 验证链路可执行并结果明确
+  - 若本地 replace 依赖要求同步 module graph，`hubmobile/go.mod/go.sum` 变更应最小且可审计
+  - `:app:assembleDebug` 通过
 - Test Points:
-  - 本地单元测试
-  - Debug 构建
+  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
+  - `.\scripts\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar`
+  - `.\gradlew.bat testDebugUnitTest`
+  - `.\gradlew.bat :app:assembleDebug`
 - Rollback:
-  - 回退测试与依赖变更
+  - 回退测试文件与生成产物
 
 #### Dependencies
-- 依赖 Android SDK / Gradle 本地环境可用。
-- 若 `app/libs/myflowhub.aar` 缺失，仍应保持 App 可编译。
+- Android SDK:
+  - `ANDROID_HOME=D:\project\MyFlowHub3\_android-sdk`
+  - `ANDROID_SDK_ROOT=D:\project\MyFlowHub3\_android-sdk`
+- `hubmobile/go.mod` 依赖同层相对 `replace`：
+  - `..\MyFlowHub-Server`
+  - `..\MyFlowHub-SDK`
+- 由于 `MyFlowHub-Server(main)` 当前依赖未发布的 `protocol/stream` 包，本地 Go / AAR 验证需额外通过临时 `go.work` 引入：
+  - `D:\project\MyFlowHub3\worktrees\feat-android-rfcomm-listen\MyFlowHub-Proto`
+- `golang.org/x/mobile` / `gomobile` 工具链需可用，才能重建 AAR。
 
 #### Risks and Notes
-- 当前 RFCOMM 主要覆盖 client connect 与 hub parent dial，不扩展到 listen 配置产品化。
-- 若测试环境缺少 Android SDK 或 Gradle 依赖，需至少保留单元测试结果与受限说明。
+- 本轮不改 Server / SDK 代码；如验证过程中发现需要修改依赖仓逻辑，必须先回到 `3.1` 更新主计划。
+- `app/libs/myflowhub.aar` 为构建产物，但本轮改动涉及 `hubmobile` 导出 API，必须重建后再做 Android 验证。
+- 如果 `HubState` 不扩展 listener 字段，本轮只保证“配置可用 + 启动可用 + 报错可诊断”，不额外承诺运行态可视化。
 
 #### Parallelism Assessment
-- 本次改动集中在同一 Android App 模块，写集高度重叠，不适合派发子 Agent。
-- 采用主 agent 串行实现与统一回归。
+- 主改动集中在同一 Android 模块和同一 `hubmobile` API 面，写集高度重叠。
+- Server / SDK worktree 本轮仅为 dependency-only，不适合派发子 Agent。
+- 采用主 agent 串行实现与统一验证。
 
 #### Issue List
 - 无
+
+### Stage 3.3 - Code Review
+- 需求覆盖：通过
+  - RFCOMM listener 配置已从 UI/Prefs/Service/Bridge 传至 `hubruntime.Options`
+  - 旧 AAR / listener 请求场景已显式失败
+- 架构合理性：通过
+  - 沿用现有 `HubConfig` 与 `HubBridge` 链路，没有引入新的中间配置层
+- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：通过
+  - 新增逻辑仅发生在配置保存和 Start 点击前校验，无持续后台开销
+- 可读性与一致性：通过
+  - RFCOMM 默认 UUID、权限判断、UUID 校验集中在 helper；Bridge 兼容逻辑独立成 `HubStartBinding`
+- 可扩展性与配置化：通过
+  - 当前只暴露最小配置面，未来可继续向 `HubConfig` / `HubService` 扩字段
+- 稳定性与安全：通过
+  - `rfcommInsecure` 默认 `false`
+  - UUID 非法、权限缺失、旧 AAR 不支持 listener 时均为显式失败
+- 测试覆盖情况：通过
+  - Go 测试、AAR 构建、JVM 单测、`assembleDebug` 均已通过
+- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）：通过
+  - 未使用子 Agent
+
+### Stage 4 - Change Archive
+- `$m-docs` 路由结论：
+  - Requirements impact: `none`
+  - Specs impact: `none`
+  - Lessons impact: `updated`
+- 已归档：
+  - `docs/change/2026-03-31_android-rfcomm-listener-config.md`
+  - `docs/lessons/android-hubmobile-local-replace.md`
+  - `docs/lessons/README.md`
 
 阻塞：否
 进入 3.2

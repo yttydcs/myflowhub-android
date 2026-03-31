@@ -16,5 +16,7 @@
 - 新增或更新 lesson 后，同步更新本索引。
 
 ## Current Lessons
+- [android-hubmobile-local-replace.md](android-hubmobile-local-replace.md)
+  - 症状：本地 `hubmobile` 执行 `go test` / `gomobile bind` 时出现 `protocol/stream`、`go mod tidy` 或 `gobind` 相关错误
 - [android-rfcomm-permission.md](android-rfcomm-permission.md)
   - 症状：Android 12+ 下 `bt+rfcomm://...` 连接/父链无法使用，或出现蓝牙权限 / `SecurityException` 类错误
