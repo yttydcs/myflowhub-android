@@ -1,5 +1,7 @@
 package com.myflowhub.android.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -46,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.myflowhub.android.BluetoothRfcommSupport
 import com.myflowhub.android.GoClientBridge
 import com.myflowhub.android.Prefs
 import java.io.File
@@ -117,10 +120,38 @@ fun AppRoot() {
             snackEvents.tryEmit(event)
         }
     }
+    val bluetoothPermissions = remember { BluetoothRfcommSupport.requiredRuntimePermissions() }
+    var hasBluetoothPermission by remember { mutableStateOf(BluetoothRfcommSupport.hasRuntimePermissions(context)) }
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        hasBluetoothPermission = BluetoothRfcommSupport.hasRuntimePermissions(context)
+        if (bluetoothPermissions.isEmpty()) {
+            return@rememberLauncherForActivityResult
+        }
+        if (hasBluetoothPermission) {
+            ui.success("蓝牙权限已授予，可继续使用 RFCOMM。")
+        } else {
+            ui.error(BluetoothRfcommSupport.permissionDeniedMessage())
+        }
+    }
+
+    fun requestBluetoothPermission() {
+        val missing = BluetoothRfcommSupport.missingRuntimePermissions(context)
+        if (missing.isEmpty()) {
+            hasBluetoothPermission = true
+            return
+        }
+        bluetoothPermissionLauncher.launch(missing.toTypedArray())
+    }
 
     LaunchedEffect(identity.migration) {
         val mig = identity.migration ?: return@LaunchedEffect
         ui.info("已自动迁移身份：Hub=${mig.hubSelfId} / UI=${mig.uiDeviceId}。登录信息已清空，请重新注册/登录。")
+    }
+
+    LaunchedEffect(tab, clientCfg.targetAddr, hubCfg.parentAddr) {
+        hasBluetoothPermission = BluetoothRfcommSupport.hasRuntimePermissions(context)
     }
 
     LaunchedEffect(snackbarHostState) {
@@ -166,6 +197,8 @@ fun AppRoot() {
                 hubSelfId = hubCfg.selfId,
                 cfg = clientCfg,
                 ui = ui,
+                hasBluetoothPermission = hasBluetoothPermission,
+                requestBluetoothPermission = ::requestBluetoothPermission,
                 onCfgChange = { updated ->
                     clientCfg = updated
                     Prefs.saveClient(context, updated)
@@ -176,6 +209,8 @@ fun AppRoot() {
                 modifier = contentModifier,
                 cfg = hubCfg,
                 ui = ui,
+                hasBluetoothPermission = hasBluetoothPermission,
+                requestBluetoothPermission = ::requestBluetoothPermission,
                 onCfgChange = { updated ->
                     hubCfg = updated
                     Prefs.save(context, updated)

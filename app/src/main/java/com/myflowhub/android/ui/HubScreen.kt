@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.myflowhub.android.BluetoothRfcommSupport
 import com.myflowhub.android.HubConfig
 import com.myflowhub.android.HubService
 import com.myflowhub.android.HubState
@@ -50,6 +51,8 @@ fun HubScreen(
     modifier: Modifier = Modifier,
     cfg: HubConfig,
     ui: UiNotifier,
+    hasBluetoothPermission: Boolean,
+    requestBluetoothPermission: () -> Unit,
     onCfgChange: (HubConfig) -> Unit,
 ) {
     val context = LocalContext.current
@@ -115,10 +118,14 @@ fun HubScreen(
                     value = cfg.parentAddr,
                     onValueChange = { onCfgChange(cfg.copy(parentAddr = it)) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Parent addr (optional)") },
-                    placeholder = { Text("ip:port") },
+                    label = { Text("Parent endpoint (optional)") },
+                    placeholder = { Text("127.0.0.1:9000 或 bt+rfcomm://AA:BB:CC:DD:EE:FF?uuid=...") },
                     singleLine = true,
                 )
+                Text("Parent 支持 tcp://host:port、host:port、bt+rfcomm://...；Listen addr 仍为 TCP。")
+                if (BluetoothRfcommSupport.usesRfcommEndpoint(cfg.parentAddr) && !hasBluetoothPermission) {
+                    Text(BluetoothRfcommSupport.permissionDeniedMessage())
+                }
                 OutlinedTextField(
                     value = cfg.selfId,
                     onValueChange = { onCfgChange(cfg.copy(selfId = it)) },
@@ -146,6 +153,11 @@ fun HubScreen(
                         onClick = {
                             if (cfg.addr.isBlank()) {
                                 ui.info("Listen addr 不能为空，例如 :9000")
+                                return@FilledTonalButton
+                            }
+                            if (BluetoothRfcommSupport.usesRfcommEndpoint(cfg.parentAddr) && !hasBluetoothPermission) {
+                                ui.info("RFCOMM 父链需要蓝牙权限，正在请求授权…")
+                                requestBluetoothPermission()
                                 return@FilledTonalButton
                             }
                             val currentSelfId = cfg.selfId.trim()

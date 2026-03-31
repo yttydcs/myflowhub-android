@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.myflowhub.android.BluetoothRfcommSupport
 import com.myflowhub.android.GoClientBridge
 import com.myflowhub.android.Prefs
 import kotlinx.coroutines.CancellationException
@@ -47,6 +48,8 @@ fun LoginScreen(
     hubSelfId: String,
     cfg: Prefs.ClientConfig,
     ui: UiNotifier,
+    hasBluetoothPermission: Boolean,
+    requestBluetoothPermission: () -> Unit,
     onCfgChange: (Prefs.ClientConfig) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -178,10 +181,14 @@ fun LoginScreen(
                     value = cfg.targetAddr,
                     onValueChange = { onCfgChange(cfg.copy(targetAddr = it)) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Target addr (ip:port)") },
-                    placeholder = { Text("127.0.0.1:9000") },
+                    label = { Text("Target endpoint") },
+                    placeholder = { Text("127.0.0.1:9000 或 bt+rfcomm://AA:BB:CC:DD:EE:FF?uuid=...") },
                     singleLine = true,
                 )
+                Text("支持 host:port、tcp://host:port、bt+rfcomm://BDADDR?uuid=...")
+                if (BluetoothRfcommSupport.usesRfcommEndpoint(cfg.targetAddr) && !hasBluetoothPermission) {
+                    Text(BluetoothRfcommSupport.permissionDeniedMessage())
+                }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     FilledTonalButton(
@@ -192,8 +199,13 @@ fun LoginScreen(
                         ui.error("Go 不可用：${goError.ifBlank { "unknown error" }}")
                         return@FilledTonalButton
                     }
-                    if (cfg.targetAddr.isBlank()) {
-                        ui.info("Target addr 不能为空，例如 192.168.1.10:9000 或 127.0.0.1:9000")
+                     if (cfg.targetAddr.isBlank()) {
+                        ui.info("Target endpoint 不能为空，例如 192.168.1.10:9000 或 bt+rfcomm://AA:BB:CC:DD:EE:FF?uuid=...")
+                        return@FilledTonalButton
+                    }
+                    if (BluetoothRfcommSupport.usesRfcommEndpoint(cfg.targetAddr) && !hasBluetoothPermission) {
+                        ui.info("RFCOMM 连接需要蓝牙权限，正在请求授权…")
+                        requestBluetoothPermission()
                         return@FilledTonalButton
                     }
                     val token = beginOp("正在连接：${cfg.targetAddr}")

@@ -54,51 +54,55 @@ internal object BluetoothRfcommProvider {
     }
 
     private fun createListenerProxy(listenerIface: Class<*>, uuid: String, secure: Boolean): Any {
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw IllegalStateException("BluetoothAdapter 不可用")
-        if (!adapter.isEnabled) {
-            throw IllegalStateException("蓝牙未开启")
-        }
-        val u = UUID.fromString(uuid)
-        val serverSocket = if (secure) {
-            adapter.listenUsingRfcommWithServiceRecord("MyFlowHub", u)
-        } else {
-            adapter.listenUsingInsecureRfcommWithServiceRecord("MyFlowHub", u)
-        }
+        return withBluetoothPermissionHint("开启 RFCOMM 监听") {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw IllegalStateException("BluetoothAdapter 不可用")
+            if (!adapter.isEnabled) {
+                throw IllegalStateException("蓝牙未开启")
+            }
+            val u = UUID.fromString(uuid)
+            val serverSocket = if (secure) {
+                adapter.listenUsingRfcommWithServiceRecord("MyFlowHub", u)
+            } else {
+                adapter.listenUsingInsecureRfcommWithServiceRecord("MyFlowHub", u)
+            }
 
-        return Proxy.newProxyInstance(listenerIface.classLoader, arrayOf(listenerIface)) { _, method, _ ->
-            when (method.name.lowercase()) {
-                "accept" -> {
-                    val socket = serverSocket.accept()
-                    createAcceptedPipeProxy(method.returnType, socket)
+            Proxy.newProxyInstance(listenerIface.classLoader, arrayOf(listenerIface)) { _, method, _ ->
+                when (method.name.lowercase()) {
+                    "accept" -> {
+                        val socket = serverSocket.accept()
+                        createAcceptedPipeProxy(method.returnType, socket)
+                    }
+                    "close" -> {
+                        serverSocket.close()
+                        null
+                    }
+                    "addr" -> "rfcomm(uuid=$uuid,secure=$secure)"
+                    "tostring" -> "AndroidRFCOMMListener(proxy)"
+                    "hashcode" -> System.identityHashCode(serverSocket)
+                    "equals" -> false
+                    else -> throw UnsupportedOperationException("unsupported listener method: ${method.name}")
                 }
-                "close" -> {
-                    serverSocket.close()
-                    null
-                }
-                "addr" -> "rfcomm(uuid=$uuid,secure=$secure)"
-                "tostring" -> "AndroidRFCOMMListener(proxy)"
-                "hashcode" -> System.identityHashCode(serverSocket)
-                "equals" -> false
-                else -> throw UnsupportedOperationException("unsupported listener method: ${method.name}")
             }
         }
     }
 
     private fun createDialPipeProxy(pipeIface: Class<*>, bdaddr: String, uuid: String, secure: Boolean): Any {
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw IllegalStateException("BluetoothAdapter 不可用")
-        if (!adapter.isEnabled) {
-            throw IllegalStateException("蓝牙未开启")
+        return withBluetoothPermissionHint("建立 RFCOMM 连接") {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: throw IllegalStateException("BluetoothAdapter 不可用")
+            if (!adapter.isEnabled) {
+                throw IllegalStateException("蓝牙未开启")
+            }
+            adapter.cancelDiscovery()
+            val device = adapter.getRemoteDevice(bdaddr)
+            val u = UUID.fromString(uuid)
+            val socket = if (secure) {
+                device.createRfcommSocketToServiceRecord(u)
+            } else {
+                device.createInsecureRfcommSocketToServiceRecord(u)
+            }
+            socket.connect()
+            createPipeProxy(pipeIface, socket)
         }
-        adapter.cancelDiscovery()
-        val device = adapter.getRemoteDevice(bdaddr)
-        val u = UUID.fromString(uuid)
-        val socket = if (secure) {
-            device.createRfcommSocketToServiceRecord(u)
-        } else {
-            device.createInsecureRfcommSocketToServiceRecord(u)
-        }
-        socket.connect()
-        return createPipeProxy(pipeIface, socket)
     }
 
     private fun createAcceptedPipeProxy(pipeIface: Class<*>, socket: BluetoothSocket): Any {
@@ -131,6 +135,14 @@ internal object BluetoothRfcommProvider {
                 "equals" -> false
                 else -> throw UnsupportedOperationException("unsupported pipe method: ${method.name}")
             }
+        }
+    }
+
+    private inline fun <T> withBluetoothPermissionHint(action: String, block: () -> T): T {
+        return try {
+            block()
+        } catch (e: SecurityException) {
+            throw IllegalStateException("${BluetoothRfcommSupport.permissionDeniedMessage()} 无法$action。", e)
         }
     }
 }
