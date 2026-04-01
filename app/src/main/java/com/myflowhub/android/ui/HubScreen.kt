@@ -88,7 +88,14 @@ fun HubScreen(
     }
 
     LaunchedEffect(svc) {
-        state = pollState(svc) ?: HubState()
+        if (svc == null) {
+            state = HubState()
+            return@LaunchedEffect
+        }
+        while (true) {
+            state = pollState(svc) ?: HubState()
+            delay(1_000)
+        }
     }
 
     Column(

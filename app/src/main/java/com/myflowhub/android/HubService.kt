@@ -13,6 +13,14 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class HubService : Service() {
     class LocalBinder(private val service: HubService) : Binder() {
@@ -28,43 +36,162 @@ class HubService : Service() {
 
     @Volatile
     private var state: HubState = HubState()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var foregroundStarted = false
+    private var monitorJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> {
-                val workDir = File(filesDir, "hub").absolutePath
-                val cfg = HubConfig(
-                    addr = intent.getStringExtra(EXTRA_ADDR) ?: ":9000",
-                    parentAddr = intent.getStringExtra(EXTRA_PARENT) ?: "",
-                    selfId = intent.getStringExtra(EXTRA_SELF_ID) ?: "",
-                    rfcommListenEnabled = intent.getBooleanExtra(EXTRA_RFCOMM_ENABLE, false),
-                    rfcommServiceUuid = (intent.getStringExtra(EXTRA_RFCOMM_UUID) ?: "")
-                        .trim()
-                        .ifBlank { BluetoothRfcommSupport.defaultServiceUuid() },
-                    rfcommInsecure = intent.getBooleanExtra(EXTRA_RFCOMM_INSECURE, false),
-                    workDir = workDir,
-                )
-                startForegroundWithState("Starting…")
-                state = bridge.start(cfg)
-                startForegroundWithState(if (state.running) "Running" else "Stopped")
-            }
-            ACTION_STOP -> {
-                state = bridge.stop()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
-            else -> {
-                // no-op
-            }
+            ACTION_START -> handleStart(buildConfig(intent))
+            ACTION_STOP -> handleStop()
+            else -> handleRestoreOrRefresh()
         }
         return START_STICKY
     }
 
-    fun getState(): HubState = bridge.status()
+    override fun onDestroy() {
+        stopStatusMonitor()
+        serviceScope.cancel()
+        super.onDestroy()
+    }
 
-    private fun startForegroundWithState(text: String) {
+    fun getState(): HubState = refreshState()
+
+    private fun handleStart(cfg: HubConfig) {
+        Prefs.saveHubRunSnapshot(this, cfg)
+        Prefs.setHubDesiredRunning(this, true)
+        showForegroundState("Starting…")
+        state = bridge.start(cfg)
+        if (!state.running) {
+            Prefs.setHubDesiredRunning(this, false)
+        }
+        publishState(updateNotification = true)
+        if (state.running) {
+            startStatusMonitor()
+        } else {
+            stopStatusMonitor()
+        }
+    }
+
+    private fun handleStop() {
+        Prefs.setHubDesiredRunning(this, false)
+        stopStatusMonitor()
+        state = bridge.stop()
+        foregroundStarted = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun handleRestoreOrRefresh() {
+        val desiredRunning = Prefs.isHubDesiredRunning(this)
+        val cfg = try {
+            HubServiceSupport.restoreConfig(Prefs.loadHubRunSnapshot(this), desiredRunning, hubWorkDir())
+        } catch (t: Throwable) {
+            Prefs.setHubDesiredRunning(this, false)
+            state = HubState(running = false, lastError = "Restore failed: ${t.message ?: t}")
+            showForegroundState(HubServiceSupport.notificationText(state))
+            stopStatusMonitor()
+            return
+        }
+
+        if (desiredRunning && cfg == null) {
+            Prefs.setHubDesiredRunning(this, false)
+            state = HubState(running = false, lastError = "Restore failed: missing saved start config")
+            showForegroundState(HubServiceSupport.notificationText(state))
+            stopStatusMonitor()
+            return
+        }
+
+        if (cfg != null) {
+            showForegroundState("Restoring…")
+            state = bridge.start(cfg)
+            if (!state.running) {
+                Prefs.setHubDesiredRunning(this, false)
+            }
+            publishState(updateNotification = true)
+            if (state.running) {
+                startStatusMonitor()
+            } else {
+                stopStatusMonitor()
+            }
+            return
+        }
+
+        state = refreshState()
+        if (state.running) {
+            showForegroundState(HubServiceSupport.notificationText(state))
+            startStatusMonitor()
+        } else {
+            stopStatusMonitor()
+            stopSelf()
+        }
+    }
+
+    private fun refreshState(): HubState {
+        val latest = bridge.status()
+        state = if (!latest.running && latest.lastError.isBlank() && state.lastError.isNotBlank()) {
+            state.copy(
+                running = false,
+                nodeId = latest.nodeId,
+                parentConnected = latest.parentConnected,
+            )
+        } else {
+            latest
+        }
+        return state
+    }
+
+    private fun publishState(updateNotification: Boolean) {
+        if (updateNotification) {
+            showForegroundState(HubServiceSupport.notificationText(state))
+        }
+    }
+
+    private fun startStatusMonitor() {
+        if (monitorJob?.isActive == true) {
+            return
+        }
+        monitorJob = serviceScope.launch {
+            while (isActive) {
+                val previous = state
+                val latest = refreshState()
+                if (latest != previous) {
+                    showForegroundState(HubServiceSupport.notificationText(latest))
+                }
+                if (!latest.running) {
+                    Prefs.setHubDesiredRunning(this@HubService, false)
+                    return@launch
+                }
+                delay(2_000)
+            }
+        }
+    }
+
+    private fun stopStatusMonitor() {
+        monitorJob?.cancel()
+        monitorJob = null
+    }
+
+    private fun buildConfig(intent: Intent): HubConfig {
+        return HubServiceSupport.runtimeConfig(
+            HubConfig(
+                addr = intent.getStringExtra(EXTRA_ADDR) ?: ":9000",
+                parentAddr = intent.getStringExtra(EXTRA_PARENT) ?: "",
+                selfId = intent.getStringExtra(EXTRA_SELF_ID) ?: "",
+                rfcommListenEnabled = intent.getBooleanExtra(EXTRA_RFCOMM_ENABLE, false),
+                rfcommServiceUuid = intent.getStringExtra(EXTRA_RFCOMM_UUID) ?: "",
+                rfcommInsecure = intent.getBooleanExtra(EXTRA_RFCOMM_INSECURE, false),
+            ),
+            hubWorkDir(),
+        )
+    }
+
+    private fun hubWorkDir(): String = File(filesDir, "hub").absolutePath
+
+    private fun showForegroundState(text: String) {
         createChannelIfNeeded()
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("MyFlowHub")
@@ -72,19 +199,24 @@ class HubService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setOngoing(true)
             .build()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-        )
+        if (!foregroundStarted) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+            foregroundStarted = true
+            return
+        }
+        notificationManager().notify(NOTIFICATION_ID, notification)
     }
 
     private fun createChannelIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return
         }
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val nm = notificationManager()
         val existing = nm.getNotificationChannel(CHANNEL_ID)
         if (existing != null) {
             return
@@ -95,6 +227,10 @@ class HubService : Service() {
             NotificationManager.IMPORTANCE_LOW,
         )
         nm.createNotificationChannel(ch)
+    }
+
+    private fun notificationManager(): NotificationManager {
+        return getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
 
     companion object {
