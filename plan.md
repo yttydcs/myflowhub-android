@@ -5,7 +5,7 @@
 - Branch: `fix/android-release-workflow-deps`
 - Base: `origin/main`
 - Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Current Stage: `4`
+- Current Stage: `3.1 (follow-up)`
 
 ## Stage Records
 
@@ -153,6 +153,7 @@
   - `replace github.com/yttydcs/myflowhub-sdk => ../../MyFlowHub-SDK`
   - `replace github.com/yttydcs/myflowhub-proto => ../../MyFlowHub-Proto`
 - 当前 workflow 只 checkout 了 Android + Server，未补 SDK / Proto。
+- Follow-up：`v0.1.28` 已验证 checkout 链补齐，但 release run #29 仍失败；日志确认 `actions/checkout` 为 `MyFlowHub-Proto` 拉取了 default branch `refactor/proto-extract`，而不是 workflow 期望的 `main`。
 
 #### Docs Governance Routing Decision
 - 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
@@ -179,6 +180,8 @@
 - [x] `ANDRELCHK-3`：修复 `ci.yml` 的 checkout 依赖链
 - [x] `ANDRELCHK-4`：更新 `docs/release.md` 说明
 - [x] `ANDRELCHK-5`：完成验证、自审与变更归档
+- [ ] `ANDRELCHK-6`：将依赖仓 checkout 显式 pin 到 `main`
+- [ ] `ANDRELCHK-7`：重发 tag 并复核 release 结果
 
 #### Task Details
 ##### ANDRELCHK-1 - 控制文档切换
@@ -275,6 +278,53 @@
 - Rollback:
   - 删除本轮归档并回退相关文件
 
+##### ANDRELCHK-6 - 依赖仓 checkout 显式 pin 到 main
+- Owner: `main`
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
+- Goal: 避免 `actions/checkout` 落到依赖仓的 default branch，而不是 Android release 期望的 `main`。
+- Files / Modules:
+  - `.github/workflows/release.yml`
+  - `.github/workflows/ci.yml`
+  - `docs/release.md`
+  - `docs/change/2026-04-01_android-release-checkout-deps.md`
+  - `docs/lessons/android-hubmobile-local-replace.md`
+- Write Set:
+  - `.github/workflows/release.yml`
+  - `.github/workflows/ci.yml`
+  - `docs/release.md`
+  - `docs/change/2026-04-01_android-release-checkout-deps.md`
+  - `docs/lessons/android-hubmobile-local-replace.md`
+  - `plan.md`
+- Acceptance:
+  - `Checkout Server / SDK / Proto` 都显式指定 `ref: main`
+  - 文档记录 default branch 漂移风险
+- Test Points:
+  - 审阅 workflow checkout 参数
+  - 对照 `v0.1.28` 日志确认之前的 failure 根因已覆盖
+- Rollback:
+  - 回退 workflow 与文档的 `ref: main` 变更
+
+##### ANDRELCHK-7 - 重发 tag 验证 release
+- Owner: `main`
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
+- Goal: 用新的 release run 验证 workflow 是否越过 `Build AAR (gomobile)`。
+- Files / Modules:
+  - `repo/MyFlowHub-Android/main`（控制面 merge / tag）
+- Write Set:
+  - `repo/MyFlowHub-Android/main`
+  - remote `main`
+  - remote tag
+- Acceptance:
+  - 新 tag 触发新的 release run
+  - 至少确认 checkout 已拉到 `main`
+  - 优先确认是否越过 `Build AAR (gomobile)`
+- Test Points:
+  - GitHub Actions run 状态与日志
+- Rollback:
+  - 如误发 tag，删除远端 tag；如主线提交有误，另起 revert
+
 #### Dependencies
 - `hubmobile/go.mod` 中的本地 `replace` 目录结构
 - GitHub 仓库：
@@ -288,6 +338,7 @@
 #### Risks and Notes
 - 本轮无法在本地直接模拟 GitHub runner 的远端 checkout 权限与网络稳定性，只能做静态与结构验证。
 - GitHub 日志下载接口对匿名访问受限，因此归档中的失败原因基于 run 元数据、workflow 结构与仓内依赖链综合判断。
+- `v0.1.28` follow-up 日志已确认 `MyFlowHub-Proto` 的 default branch 为 `refactor/proto-extract`，因此 workflow 若不显式写 `ref: main`，checkout 结果会与当前 release 期望不一致。
 
 #### Parallelism Assessment
 - 本轮变更集中在两个 workflow 和一份文档，写集高度重叠，不适合并行派发。
@@ -307,6 +358,10 @@
   - `docs/release.md` 已改为说明完整的 Hubmobile 本地依赖拓扑。
 - `ANDRELCHK-5`
   - 已更新 lesson，并新增 `docs/change/2026-04-01_android-release-checkout-deps.md` 归档。
+- `ANDRELCHK-6`
+  - 待执行：基于 `v0.1.28` 失败日志，为依赖仓 checkout 增加显式 `ref: main`。
+- `ANDRELCHK-7`
+  - 待执行：workflow 修复后重发 tag 并复核远端 release。
 
 ### Stage 3.3 - Code Review
 - 需求覆盖：通过
@@ -318,6 +373,8 @@
 - 测试覆盖情况：部分通过
   - 已做静态结构校验与文档一致性校验；尚未执行远端 Actions rerun
 - 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）：通过
+- Follow-up 结论：
+  - `v0.1.28` 远端实跑暴露新的确定性问题，需回到 `3.1 / 3.2` 增补 `ref: main` 修复后再重新审查。
 
 ### Stage 4 - Change Archive
 - 使用 `$m-docs` 完成变更归档与 lesson 路由校验。
@@ -328,4 +385,4 @@
 - Lessons impact: `updated`
 
 阻塞：否
-已完成 Stage 4，等待用户确认是否结束 workflow
+返回 3.2 执行 follow-up 修复

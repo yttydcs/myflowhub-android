@@ -93,12 +93,13 @@ git push origin v0.1.0
 
 GitHub Actions 会额外 checkout 以下仓库到同一 workspace，以保证 `GOWORK=off` 下的 `gomobile bind` 能命中与本地开发一致的相对目录结构：
 
-- `yttydcs/myflowhub-server` -> `repo/MyFlowHub-Server`
-- `yttydcs/myflowhub-sdk` -> `repo/MyFlowHub-SDK`
-- `yttydcs/myflowhub-proto` -> `repo/MyFlowHub-Proto`
+- `yttydcs/myflowhub-server@main` -> `repo/MyFlowHub-Server`
+- `yttydcs/myflowhub-sdk@main` -> `repo/MyFlowHub-SDK`
+- `yttydcs/myflowhub-proto@main` -> `repo/MyFlowHub-Proto`
 
 这样可以保证：
 - CI / Release 构建时 APK 始终内置 Hub（通过 `gomobile bind` 生成 AAR）。
 - runner 上的 Go module 解析与当前 `hubmobile/go.mod` 保持一致，避免因为本地 `replace` 目录缺失而在 `Build AAR (gomobile)` 失败。
+- 不受依赖仓 default branch 漂移影响；即使某个依赖仓默认分支不是 `main`，workflow 仍会拉到 release 期望的主线代码。
 - Release 仍采用 `myflowhub-server` 的 `main` 最新提交，并写入 `build-info.txt` 以便审计与回放。
 

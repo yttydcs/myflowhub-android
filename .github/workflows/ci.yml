@@ -24,18 +24,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: yttydcs/myflowhub-server
+          ref: main
           path: repo/MyFlowHub-Server
 
       - name: Checkout SDK (for hubmobile replace)
         uses: actions/checkout@v4
         with:
           repository: yttydcs/myflowhub-sdk
+          ref: main
           path: repo/MyFlowHub-SDK
 
       - name: Checkout Proto (for hubmobile replace)
         uses: actions/checkout@v4
         with:
           repository: yttydcs/myflowhub-proto
+          ref: main
           path: repo/MyFlowHub-Proto
 
       - name: Setup JDK 17

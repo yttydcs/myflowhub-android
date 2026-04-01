@@ -6,6 +6,9 @@
   - `Decode keystore` 已通过，因此失败点不在签名 secrets。
   - 历史上从 `v0.1.23` 开始，release workflow 持续在同一 `Build AAR (gomobile)` 步骤失败。
   - 当前 `hubmobile/go.mod` 已声明本地 `replace` 到 `MyFlowHub-Server`、`MyFlowHub-SDK`、`MyFlowHub-Proto`，但 workflow 只 checkout 了 Android + Server。
+- follow-up：
+  - `v0.1.28` 已验证 SDK / Proto checkout 补齐，但 release run #29 仍失败。
+  - 日志确认 `Checkout Proto (for hubmobile replace)` 实际拉到的是依赖仓 default branch `refactor/proto-extract`，而不是 Android release 期望的 `main`。
 - 目标：让 GitHub runner 的目录结构与 `hubmobile/go.mod` 的相对 `replace` 链保持一致，恢复 CI / Release 的基本可用性。
 
 ## 具体变更内容
@@ -14,19 +17,23 @@
 - 在 `Checkout Server` 后新增：
   - `Checkout SDK (for hubmobile replace)` -> `repo/MyFlowHub-SDK`
   - `Checkout Proto (for hubmobile replace)` -> `repo/MyFlowHub-Proto`
+- 对 `Checkout Server / SDK / Proto` 全部补充 `ref: main`，避免 `actions/checkout` 跟随依赖仓 default branch 漂移。
 - 保持其余 `gomobile` / Gradle / release 发布逻辑不变。
 
 2) `.github/workflows/ci.yml`
 - 同步新增 SDK / Proto checkout。
 - 保证 debug CI 与 release 使用同一套依赖目录拓扑。
+- 同步对依赖仓固定 `ref: main`。
 
 3) `docs/release.md`
 - 将“Server 依赖”说明更新为“Hubmobile 本地依赖”。
 - 明确记录当前 Actions 会额外 checkout `Server / SDK / Proto`，以及这样做是为了满足 `hubmobile/go.mod` 的本地 `replace`。
+- 补充说明：workflow 显式固定依赖仓到 `main`，避免 default branch 漂移。
 
 4) `docs/lessons/android-hubmobile-local-replace.md`
 - 补充 GitHub Actions 场景的症状、根因、resolution 与 guardrail。
 - 明确要求：只要 `hubmobile/go.mod` 保留本地 `replace`，workflow checkout 就必须同步镜像这些目录。
+- 明确要求：对这些 checkout 同时固定 `ref: main`，不要依赖依赖仓 default branch。
 
 ### 新增
 - `docs/change/2026-04-01_android-release-checkout-deps.md`
@@ -64,6 +71,7 @@
 ## 经验 / 教训摘要
 - `gomobile bind` 的稳定性不只取决于工具链版本，也取决于 runner 是否具备与 `hubmobile/go.mod` 一致的本地目录拓扑。
 - Android 仓继续使用 `GOWORK=off` + 本地 `replace` 时，CI / Release 必须显式 checkout 对应依赖仓，不能只假设 semver 依赖可覆盖所有路径。
+- 对跨仓 checkout，`repository` 正确还不够；若 release 语义要求主线，还必须显式写 `ref: main`，否则会被依赖仓 default branch 偷换。
 
 ## 可复用排查线索
 - 症状：
@@ -72,6 +80,7 @@
 - 触发条件：
   - `hubmobile/go.mod` 新增或保留本地 `replace`
   - workflow checkout 没有同步镜像这些目录
+  - workflow checkout 没有显式固定 `ref`
 - 关键词：
   - `Build AAR (gomobile)`
   - `hubmobile/go.mod`
@@ -79,8 +88,10 @@
   - `actions/checkout`
   - `MyFlowHub-SDK`
   - `MyFlowHub-Proto`
+  - `Default branch 'refactor/proto-extract'`
 - 快速检查：
   - 对照 `hubmobile/go.mod` 的 `replace` 列表，检查 `ci.yml` / `release.yml` 是否为每个本地目录都提供了对应 checkout
+  - 查看 checkout step 日志里 `Determining the default branch`，确认没有拉到非 `main` 的默认分支
 
 ## 关键设计决策与权衡
 1) 选择补 checkout，而不是在 workflow 中动态改 `go.mod`
@@ -91,7 +102,11 @@
 - 优点：避免 debug / release 构建策略漂移，同类问题不会只在 tag 时暴露。
 - 代价：需要同时修改两个 workflow，但改动对称、风险低。
 
-3) 选择更新已有 lesson，而不是新建相近故障文档
+3) 选择显式 pin `ref: main`
+- 优点：不依赖依赖仓 default branch 配置，release 语义更确定。
+- 代价：若未来要改为跟随 tag / SHA，需要手动调整 workflow。
+
+4) 选择更新已有 lesson，而不是新建相近故障文档
 - 优点：把“本地 replace / CI checkout 漂移”收敛到一个稳定入口，方便后续查询。
 - 代价：lesson 覆盖范围更广，需要在标题保持抽象。
 
@@ -101,6 +116,8 @@
     - 结果：通过
   - 静态比对 `hubmobile/go.mod` 的本地 `replace`
     - 结果：当前三条 `replace`（Server / SDK / Proto）都已在 `ci.yml` 与 `release.yml` 中找到对应 checkout
+  - `v0.1.28` release run 日志排查
+    - 结果：checkout 步骤显示 `MyFlowHub-Proto` 实际拉取 default branch `refactor/proto-extract`，确认需要显式 `ref: main`
   - 文档审阅
     - 结果：`docs/release.md` 已不再保留“只 checkout Server”的过时描述
 - 未执行：
