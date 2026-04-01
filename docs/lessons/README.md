@@ -16,6 +16,8 @@
 - 新增或更新 lesson 后，同步更新本索引。
 
 ## Current Lessons
+- [android-hub-service-restart.md](android-hub-service-restart.md)
+  - 症状：Android Hub 启动后切到后台，服务被系统重建后看起来“不再工作”或无法恢复
 - [android-hubmobile-local-replace.md](android-hubmobile-local-replace.md)
   - 症状：本地 `hubmobile` 执行 `go test` / `gomobile bind` 时出现 `protocol/stream`、`go mod tidy` 或 `gobind` 相关错误
 - [android-rfcomm-permission.md](android-rfcomm-permission.md)

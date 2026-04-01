@@ -1,388 +1,370 @@
-# Plan - Android：修复 GitHub Actions checkout 依赖链
+# Plan - Android：Hub 后台恢复与状态连续性
 
 ## Workflow Information
 - Repo: `MyFlowHub-Android`
-- Branch: `fix/android-release-workflow-deps`
-- Base: `origin/main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Current Stage: `3.1 (follow-up)`
+- Branch: `fix/android-hub-resilience`
+- Base: `origin/main@f974fdc`
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Current Stage: `4`
 
 ## Stage Records
 
 ### Initialization
-- guide.md: `none`（仓内不存在 `guide.md`）
-- base/worktree confirmation:
-  - 主执行仓：`D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-  - 控制面仓：`D:\project\MyFlowHub3\repo\MyFlowHub-Android`
-  - 实现只允许在当前 Android worktree 内进行
-- repo state:
-  - `repo/MyFlowHub-Android/main` 干净，仅用于 worktree / tag / 集成观察
-  - 当前 worktree 从 `origin/main@199f7c8` 建立
+- guide.md: `D:\project\MyFlowHub3\guide.md`
+- 控制面仓：`D:\project\MyFlowHub3\repo\MyFlowHub-Android`
+- 主执行仓：`D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- 当前 worktree 从 `origin/main@f974fdc` 建立
 
 ### Stage 1 - Requirements Analysis
-#### Goal
-- 修复 Android 仓 GitHub Actions 在 `Build AAR (gomobile)` 阶段因本地 `replace` 目录缺失导致的失败，恢复 CI / Release 的基本可用性。
+#### 目标
+- 提升 Android Hub 的基本健壮性，解决服务 / 进程在后台被系统重建后无法自动恢复的问题，并补齐状态连续性，让正在运行的父链自动重连结果在 Android 宿主侧可持续感知。
 
-#### Scope
+#### 范围
 - 必须
-  - 让 `ci.yml` 与 `release.yml` 在 runner 上补齐 `hubmobile/go.mod` 当前依赖的本地 checkout 目录。
-  - 更新仓内 release 文档，使“GitHub Actions checkout 哪些依赖仓”与当前 `replace` 链一致。
-  - 补齐本次 workflow 的计划与变更归档。
+  - 持久化 Android Hub 的 `desiredRunning` 与最近一次启动配置快照。
+  - `HubService` 在 `intent == null` 重建时能自动恢复最近一次运行中的 Hub。
+  - 后台周期性刷新服务状态与前台通知。
+  - Hub 页面周期性刷新状态，而不是只在 bind / start / stop 时取一次。
+  - 补充单元测试覆盖恢复决策与状态文案逻辑。
 - 可选
-  - 若验证中暴露可复用、稳定的排障规则，可补充 lesson。
+  - 若本轮形成稳定排障规则，补充 lesson。
 - 不做
-  - 不修改 `hubmobile/go.mod`、Go 业务逻辑、Android UI 或 RFCOMM 功能。
-  - 不改 GitHub Secrets、签名逻辑、发布版本号规则。
-  - 不在本轮直接重打 release tag；是否重新发版由用户后续决定。
+  - 不改 Go `hubruntime` 的父链自动重连算法与 `parent.reconnect_sec`。
+  - 不引入 `WorkManager`、Boot Receiver、force-stop 恢复或 OEM 保活适配。
+  - 不新增 RFCOMM 配置字段。
 
-#### Use Cases
-- 开发者 push 普通分支时，CI 能在 runner 上构建 `myflowhub.aar` 与 debug APK。
-- 开发者 push `vMAJOR.MINOR.PATCH` tag 时，Release workflow 能在进入签名与发布前先通过 `Build AAR (gomobile)`。
-- 后续 `hubmobile/go.mod` 再引入本地 `replace` 依赖时，仓内文档可以作为排查入口。
+#### 使用场景
+- 用户点击 `Start` 后退到后台，系统回收 app 进程并重建前台服务，Hub 应按最近一次启动配置恢复。
+- Hub 运行中父链短暂断开，由 Go runtime 自动重连；Android 通知和页面应在合理延迟内反映连接状态变化。
+- 用户显式 `Stop` 后，不应因为后续服务重建而再次自动恢复。
 
-#### Functional Requirements
-- workflow 必须 checkout `MyFlowHub-Server`、`MyFlowHub-SDK`、`MyFlowHub-Proto` 到与 `hubmobile/go.mod` 相对路径兼容的位置。
-- `ci.yml` 与 `release.yml` 的 checkout 拓扑必须保持一致，避免 debug / release 行为漂移。
-- `docs/release.md` 必须明确当前 Actions 不只 checkout Server，还会补齐 SDK / Proto 依赖。
-- 失败原因和修复点必须可从 `docs/change` 追溯。
+#### 功能需求
+- `ACTION_START` 必须记录最近一次启动配置快照，并持久化 `desiredRunning=true`。
+- `ACTION_STOP` 必须清除 `desiredRunning`。
+- `HubService` 在 `intent == null` 场景下，只有在 `desiredRunning=true` 且存在配置快照时才允许恢复。
+- 恢复逻辑必须基于“最近一次启动快照”，而不是 UI 当前表单草稿。
+- 周期性状态刷新必须基于现有 `bridge.status()`，不在 Android 端重复实现父链重连。
+- 启动失败时不得留下会持续自动恢复的错误状态。
 
-#### Non-functional Requirements
-- 改动面最小，只修补 checkout 依赖链与相应文档。
-- 不新增额外 secrets、缓存层或复杂脚本。
-- 保持现有 `gomobile` / Gradle / release 发布逻辑不变。
+#### 非功能需求
+- 改动面保持最小，优先修复 Android 宿主生命周期问题。
+- 轮询频率保持低频，避免明显额外耗电或多余 I/O。
+- 变更要可追溯、可回滚。
 
-#### Inputs / Outputs
+#### 输入输出
 - 输入
-  - `hubmobile/go.mod` 中的相对 `replace`
-  - `.github/workflows/ci.yml`
-  - `.github/workflows/release.yml`
-  - `docs/release.md`
-  - 失败 run: `release.yml#28` / run id `23779735932`
+  - 用户需求：Android Hub 缺少自动重连观感，后台似乎不会自动工作
+  - 现状：`HubService` 返回 `START_STICKY`，但 `intent == null` 时没有恢复逻辑
+  - 相关文件：
+    - `app/src/main/java/com/myflowhub/android/HubService.kt`
+    - `app/src/main/java/com/myflowhub/android/Prefs.kt`
+    - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
+    - `hubmobile/hubmobile.go`
+    - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md`
 - 输出
-  - 更新后的 workflow 文件
-  - 更新后的 release 文档
-  - 本轮 `plan.md`
-  - `docs/change/2026-04-01_android-release-checkout-deps.md`
+  - 更新后的 Android 服务恢复 / 状态刷新实现
+  - 更新后的单元测试
+  - `docs/change/2026-04-01_android-hub-resilience.md`
+  - `docs/lessons/*.md`（conditional）
 
-#### Edge Cases
-- 未来 `hubmobile/go.mod` 再新增新的本地 `replace`，但 workflow 没同步更新。
-- Release 成功通过 AAR 构建后，仍可能在签名或发布步骤因 secrets / release 配置失败；本轮不把这类问题误判为 checkout 依赖问题。
-- 若远端仓库名或默认分支变更，workflow 仍需显式报错，不允许静默回退到错误目录。
+#### 边界异常
+- 服务重建但没有运行快照或 `desiredRunning=false` 时，不允许误恢复。
+- 用户启动后又编辑表单但未重新点击 `Start`，恢复时必须以最近一次真实启动配置为准。
+- 启动失败或旧 AAR / 权限问题导致运行态未建立时，不应留下错误恢复循环。
+- 本轮不承诺覆盖设备重启、应用 force-stop、厂商后台清理等场景。
 
-#### Acceptance Criteria
-- `ci.yml` 与 `release.yml` 都包含 SDK / Proto 的 checkout 步骤，并与 `hubmobile/go.mod` 当前相对路径匹配。
-- `docs/release.md` 对 Actions checkout 依赖的说明与代码一致。
-- 本地审阅可确认 `hubmobile/go.mod` 的三个 `replace` 均能在 runner 目录结构中命中。
-- `docs/change` 记录 run 失败背景、修复方案、验证方式和回滚路径。
+#### 验收标准
+- `HubService` 在空 intent 重建时能按持久化快照自动恢复最近一次运行中的 Hub。
+- 用户显式 `Stop` 后，服务不会在后续重建中自动恢复。
+- 通知和 Hub 页面能在轮询周期内反映 `running` / `parentConnected` / `lastError` 的变化。
+- 本地单元测试通过，且具备明确回滚路径。
 
-#### Risks
-- 只修 workflow 而不修文档，会让后续排障重新回到“Server-only checkout”的旧认知。
-- 若 `hubmobile/go.mod` 未来继续扩展 `replace`，workflow 仍有再次漂移风险；需要在归档中明确 guardrail。
+#### 风险
+- Android 平台上的 force-stop、设备重启、OEM 杀后台仍可能导致服务无法恢复，本轮不处理。
+- 若把“当前表单”误当作“最近一次运行配置”，会造成恢复语义漂移；因此必须单独持久化启动快照。
 
 #### Issue List
 - 无
 
 ### Stage 2 - Architecture Design
-#### Overall Solution
-- 采用“让 GitHub runner 目录结构显式对齐 `hubmobile/go.mod` 相对 `replace` 链”的方案：在 `ci.yml` / `release.yml` 中新增 SDK / Proto checkout，并同步更新 release 文档。
+#### 总体方案
+- 采用“修复 Android 宿主生命周期，而不重复实现 Go 重连”的方案：
+  - `Prefs` 额外持久化 `desiredRunning` 与最近一次启动配置快照。
+  - `HubService` 统一负责启动、停止、空 intent 恢复、状态轮询与通知更新。
+  - `HubScreen` 负责发起 Start / Stop，并在前台低频轮询 bound service 的状态用于展示。
 - 选型理由：
-  - 这是与现有 `GOWORK=off` + 本地 `replace` 构建方式最一致、最小的修复。
-  - 不引入 `go.work`、`go mod edit` 或临时复制目录，减少 runner 与本地环境的行为差异。
+  - Go runtime 已具备父链自动重连，本轮问题主要在 Android 宿主没有把运行态跨服务重建延续下来。
+  - 将“最近一次运行配置”与“表单草稿配置”分离，是最小且语义正确的恢复方式。
 
-#### Alternatives Considered
-- 方案 A：在 workflow 中动态 `go mod edit -replace`
-  - 优点：可少 checkout 几个仓
-  - 缺点：会让 CI 行为与仓内源码声明脱节，审计成本高
-- 方案 B：移除 `hubmobile/go.mod` 的本地 `replace`，完全改用 semver 依赖
-  - 优点：长远上更干净
-  - 缺点：超出本轮最小修复范围，且当前 Android 本地联调链仍依赖这些目录
-- 方案 C：在 runner 上引入 `go.work`
-  - 优点：理论上可统一多仓工作区
-  - 缺点：已有 lesson 明确指出 `gomobile/gobind` 对显式 workspace 敏感，不稳定
-- 采用方案：补 checkout，使 workflow 工作区与 `replace` 声明一致
+#### 备选对比
+- 方案 A：只改成 `START_REDELIVER_INTENT`
+  - 优点：实现简单
+  - 缺点：仍不显式表达“最近一次运行配置”和“显式 Stop 后不恢复”的边界
+- 方案 B：在 Android 侧自行实现父链重连
+  - 优点：可更主动控制重连表现
+  - 缺点：与 Go runtime 重复，容易形成双状态机
+- 方案 C：引入 `WorkManager` / Boot Receiver / Alarm 自愈
+  - 优点：覆盖更多后台场景
+  - 缺点：超出本轮最小修复范围，复杂度显著上升
+- 采用方案：持久化运行快照 + 服务恢复 + 状态轮询
 
-#### Module Responsibilities
-- `.github/workflows/ci.yml`
-  - 补齐 debug 构建路径所需的 SDK / Proto checkout。
-- `.github/workflows/release.yml`
-  - 补齐 release 构建路径所需的 SDK / Proto checkout。
-- `docs/release.md`
-  - 说明 GitHub Actions 为满足 `hubmobile/go.mod` 的本地 `replace` 会 checkout 哪些依赖仓。
-- `docs/change/2026-04-01_android-release-checkout-deps.md`
-  - 记录失败背景、修复、验证与 guardrail。
+#### 模块职责
+- `Prefs.kt`
+  - 持久化最近一次启动快照与 `desiredRunning`
+- `HubService.kt`
+  - 处理 `ACTION_START` / `ACTION_STOP`
+  - 处理 `intent == null` 的恢复
+  - 维护后台状态轮询与通知更新
+- `HubScreen.kt`
+  - 保持现有启动 / 停止入口
+  - 增加前台状态轮询
+- `HubServiceSupport.kt`（如需新增）
+  - 承载可单测的恢复与通知纯逻辑
 
-#### Data / Call Flow
-1. GitHub Actions checkout Android 仓到 `repo/MyFlowHub-Android`。
-2. workflow 额外 checkout `MyFlowHub-Server`、`MyFlowHub-SDK`、`MyFlowHub-Proto`。
-3. `scripts/build_aar.sh` 在 `GOWORK=off` 下进入 `hubmobile/`。
-4. Go module 解析命中 `../../MyFlowHub-Server`、`../../MyFlowHub-SDK`、`../../MyFlowHub-Proto`。
-5. `gomobile bind` 生成 `app/libs/myflowhub.aar`，后续 Gradle / Release 步骤继续执行。
+#### 数据 / 调用流
+1. 用户在 Hub 页面点击 `Start`。
+2. `HubScreen` 发送 `ACTION_START` 给 `HubService`。
+3. `HubService` 归一化配置并持久化“运行快照 + desiredRunning=true”。
+4. `HubService` 调用 `bridge.start(cfg)` 启动 Go runtime。
+5. `HubService` 启动周期性状态轮询，用 `bridge.status()` 刷新 `state` 与前台通知。
+6. 若服务被系统以 `intent == null` 重建，`HubService` 从 `Prefs` 读取运行快照；只有在 `desiredRunning=true` 时才自动恢复。
+7. 用户点击 `Stop` 后，`HubService` 清除 `desiredRunning`、停止 runtime、移除通知并停止自身。
+8. `HubScreen` 在 bound service 存在时低频轮询 `getState()`，同步展示最新状态。
 
-#### Interface Drafts
-- `actions/checkout@v4`
-  - `repository: yttydcs/myflowhub-sdk`
-  - `path: repo/MyFlowHub-SDK`
-- `actions/checkout@v4`
-  - `repository: yttydcs/myflowhub-proto`
-  - `path: repo/MyFlowHub-Proto`
+#### 接口草案
+- `Prefs.saveHubRunSnapshot(context, cfg)`
+- `Prefs.loadHubRunSnapshot(context): HubConfig?`
+- `Prefs.setHubDesiredRunning(context, desired: Boolean)`
+- `Prefs.isHubDesiredRunning(context): Boolean`
+- 纯逻辑 helper：
+  - 恢复配置决策
+  - 通知文本渲染
 
-#### Error Handling and Safety
-- 依赖仓 checkout 失败应直接让 workflow 失败，避免 `gomobile` 进入更晚、更难诊断的 module 错误。
-- 不改动签名与发布逻辑，避免把修复面扩大到 secrets / release 资产流程。
+#### 错误与安全
+- 恢复前必须检查运行快照是否存在，缺失时直接跳过恢复。
+- 启动失败时清除 `desiredRunning`，避免服务重建后反复进入无意义恢复。
+- 状态轮询失败时要保留可诊断错误，不得静默吞掉。
 
-#### Performance and Testing Strategy
-- 额外 checkout 两个仓会增加少量网络时间，但比在 `Build AAR` 阶段失败后反复排障更可控。
-- 验证策略：
-  - 静态校验 `hubmobile/go.mod` 的三个 `replace` 与 workflow checkout 路径一致。
-  - `git diff --check`
-  - 审阅 workflow 结构，确认 CI / Release 对齐
-  - 记录 GitHub 历史 run 作为回归前背景
+#### 性能与测试策略
+- 服务与 UI 都采用秒级低频轮询，避免过高后台开销。
+- 通过提取纯逻辑 helper，让关键恢复 / 展示规则可用本地 JUnit 覆盖。
+- 验证方式：
+  - `.\gradlew.bat testDebugUnitTest`
+  - 审阅 `HubService` 在空 intent、显式 Stop、启动失败场景下的状态机
 
-#### Extensibility Design Points
-- 后续若 `hubmobile/go.mod` 再新增本地 `replace`，只需按同样模式补 checkout，并同步文档。
-- 若未来切换为纯 semver 依赖，可直接删除这些 checkout，并在 `docs/release.md` 与归档中收口。
+#### 可扩展性设计点
+- 后续若需要开机恢复或更强保活，可复用同一套运行快照与恢复 helper。
+- 若未来需要暴露 `parent.reconnect_sec`，可在不改恢复骨架的情况下扩展到 `HubConfig` / `Prefs`。
 
 #### Issue List
 - 无
 
 ### Stage 3.1 - Planning
 #### Project Goal and Current State
-- 当前 `v0.1.27` release run 在 `Build AAR (gomobile)` 失败；同类失败至少从 `v0.1.23` 开始持续出现。
-- 当前 `hubmobile/go.mod` 已声明：
-  - `replace github.com/yttydcs/myflowhub-server => ../../MyFlowHub-Server`
-  - `replace github.com/yttydcs/myflowhub-sdk => ../../MyFlowHub-SDK`
-  - `replace github.com/yttydcs/myflowhub-proto => ../../MyFlowHub-Proto`
-- 当前 workflow 只 checkout 了 Android + Server，未补 SDK / Proto。
-- Follow-up：`v0.1.28` 已验证 checkout 链补齐，但 release run #29 仍失败；日志确认 `actions/checkout` 为 `MyFlowHub-Proto` 拉取了 default branch `refactor/proto-extract`，而不是 workflow 期望的 `main`。
+- 当前 Android Hub 的后台问题主要不在 Go runtime，而在 Android 服务生命周期：
+  - `HubService.onStartCommand()` 返回 `START_STICKY`
+  - `intent == null` 时直接 `no-op`
+  - 结果是系统重建服务后不会恢复最近一次正在运行的 Hub
+- 同时：
+  - UI 只在 bind / start / stop 时短暂轮询状态
+  - 前台通知只显示一次性静态文本，无法持续反映连接状态
+- Server 侧 `hubruntime` 已有父链自动重连：
+  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md`
+  - 本轮不在 Android 端重复实现
 
 #### Docs Governance Routing Decision
 - 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
 - Requirements impact: `none`
 - Specs impact: `none`
 - Related requirements: `none`
-- Related specs: `none`
-- Related lessons:
-  - `docs/lessons/android-hubmobile-local-replace.md`
+- Related specs:
+  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md`
+- Related lessons: `none`（结束时再决定是否新增）
+- Related changes:
+  - `docs/change/2026-02-25_android-hub-m0.md`
+  - `docs/change/2026-02-27_android-fgs-type-gomobile-reflect.md`
+  - `docs/change/2026-03-31_android-rfcomm-basic-usability.md`
+  - `docs/change/2026-03-31_android-rfcomm-listener-config.md`
 - 文档路由：
   - 当前 workflow 控制文档位于 worktree 根 `plan.md`
-  - 完成结果归档到 `docs/change/2026-04-01_android-release-checkout-deps.md`
-  - 仅当本轮沉淀出比现有 lesson 更稳定的新排障规则时才新增 / 更新 `docs/lessons`
-
-#### Related Requirements / Specs / Lessons
-- `docs/release.md`
-- `docs/lessons/android-hubmobile-local-replace.md`
-- `docs/change/2026-02-25_android-apk-release-ci.md`
-- `docs/change/2026-03-04_android-release-gomobile-pin.md`
+  - 旧 `plan.md` 已归档到 `docs/plan_archive/plan_archive_2026-04-01_android-release-checkout-deps-prev.md`
+  - 完成结果归档到 `docs/change/2026-04-01_android-hub-resilience.md`
+  - 若沉淀出稳定排障规则，再更新 `docs/lessons`
 
 #### Executable Task List
-- [x] `ANDRELCHK-1`：归档旧 `plan.md` 并建立本轮控制文档
-- [x] `ANDRELCHK-2`：修复 `release.yml` 的 checkout 依赖链
-- [x] `ANDRELCHK-3`：修复 `ci.yml` 的 checkout 依赖链
-- [x] `ANDRELCHK-4`：更新 `docs/release.md` 说明
-- [x] `ANDRELCHK-5`：完成验证、自审与变更归档
-- [ ] `ANDRELCHK-6`：将依赖仓 checkout 显式 pin 到 `main`
-- [ ] `ANDRELCHK-7`：重发 tag 并复核 release 结果
+- [x] `ANDHUBRES-1`：归档旧控制文档并建立本轮 `plan.md`
+- [x] `ANDHUBRES-2`：持久化运行快照与 `desiredRunning`，补齐空 intent 恢复
+- [x] `ANDHUBRES-3`：补齐服务侧状态轮询与通知刷新
+- [x] `ANDHUBRES-4`：补齐 Hub 页面状态轮询与展示连续性
+- [x] `ANDHUBRES-5`：补充单元测试并完成本地验证
+- [x] `ANDHUBRES-6`：完成 3.3 自审与 4 阶段归档
 
 #### Task Details
-##### ANDRELCHK-1 - 控制文档切换
+##### ANDHUBRES-1 - 控制文档切换
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 归档旧 workflow 计划，确保当前 `plan.md` 仅服务于本次 release 修复。
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
+- Goal: 归档遗留的 release workflow 计划，并建立本轮 Android 健壮性修复的控制文档。
 - Files / Modules:
   - `plan.md`
-  - `docs/plan_archive/plan_archive_2026-04-01_android-rfcomm-listener-config-prev.md`
-- Write Set:
-  - `plan.md`
-  - `docs/plan_archive/plan_archive_2026-04-01_android-rfcomm-listener-config-prev.md`
+  - `docs/plan_archive/plan_archive_2026-04-01_android-release-checkout-deps-prev.md`
 - Acceptance:
   - 旧计划已归档
-  - 新计划完整记录 stage 1 / 2 / 3.1
+  - 新 `plan.md` 完整记录 stage 1 / 2 / 3.1
 - Test Points:
   - 归档文件存在且可读
 - Rollback:
-  - 还原 `plan.md` 与归档文件路径
+  - 还原 `plan.md` 并删除本轮新增 archive
 
-##### ANDRELCHK-2 - Release workflow checkout 依赖补齐
+##### ANDHUBRES-2 - 运行快照与恢复
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 让 Release 的 runner 工作区满足 `hubmobile/go.mod` 的当前本地 `replace`。
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
+- Goal: 为服务恢复提供明确的持久化运行语义，而不是依赖 UI 当前表单状态。
 - Files / Modules:
-  - `.github/workflows/release.yml`
-- Write Set:
-  - `.github/workflows/release.yml`
+  - `app/src/main/java/com/myflowhub/android/Prefs.kt`
+  - `app/src/main/java/com/myflowhub/android/HubService.kt`
+  - `app/src/main/java/com/myflowhub/android/HubServiceSupport.kt`（conditional）
 - Acceptance:
-  - 新增 SDK / Proto checkout
-  - 路径与 `../../MyFlowHub-SDK`、`../../MyFlowHub-Proto` 一致
+  - `ACTION_START` 持久化最近一次启动快照与 `desiredRunning=true`
+  - `ACTION_STOP` 清除 `desiredRunning`
+  - `intent == null` 时按快照恢复，且只在 `desiredRunning=true` 时恢复
+  - 启动失败不会留下错误的自动恢复状态
 - Test Points:
-  - 审阅 workflow 路径
+  - 纯逻辑单测覆盖恢复决策
+  - 代码审阅恢复路径
+- Rollback:
+  - 回退上述文件到当前主线版本
+
+##### ANDHUBRES-3 - 服务侧状态连续性
+- Owner: `main`
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
+- Goal: 让前台通知和服务内部状态随 runtime 变化持续刷新，而不是只在启动瞬间固定文本。
+- Files / Modules:
+  - `app/src/main/java/com/myflowhub/android/HubService.kt`
+  - `app/src/main/java/com/myflowhub/android/HubServiceSupport.kt`（conditional）
+- Acceptance:
+  - 服务在运行时低频轮询 `bridge.status()`
+  - 前台通知能显示当前运行 / 父链 / 错误概况
+  - 服务销毁时能正确停止轮询
+- Test Points:
+  - 纯逻辑单测覆盖通知文本
+  - 代码审阅轮询生命周期
+- Rollback:
+  - 回退服务与 helper 相关改动
+
+##### ANDHUBRES-4 - Hub UI 状态刷新
+- Owner: `main`
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
+- Goal: 让用户在前台页面也能看到持续变化的 Hub 状态，而不是一次性快照。
+- Files / Modules:
+  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
+- Acceptance:
+  - bound service 存在时，Hub 页面会低频刷新状态
+  - 不破坏现有 Start / Stop 交互与权限校验
+- Test Points:
+  - 代码审阅 Compose 生命周期与轮询退出条件
+- Rollback:
+  - 回退 `HubScreen.kt`
+
+##### ANDHUBRES-5 - 测试与验证
+- Owner: `main`
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
+- Goal: 为本轮恢复与状态连续性逻辑提供可重复的本地验证。
+- Files / Modules:
+  - `app/src/test/java/com/myflowhub/android/HubServiceSupportTest.kt`（conditional）
+  - `plan.md`
+- Acceptance:
+  - 单测覆盖恢复与通知核心规则
+  - `.\gradlew.bat testDebugUnitTest` 通过
+- Test Points:
+  - `.\gradlew.bat testDebugUnitTest`
   - `git diff --check`
 - Rollback:
-  - 回退 `release.yml` 到当前主线版本
+  - 回退测试文件与相关实现
 
-##### ANDRELCHK-3 - CI workflow checkout 依赖补齐
+##### ANDHUBRES-6 - 自审与归档
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 让 debug CI 与 release 使用同一套依赖 checkout 拓扑。
-- Files / Modules:
-  - `.github/workflows/ci.yml`
-- Write Set:
-  - `.github/workflows/ci.yml`
-- Acceptance:
-  - 新增 SDK / Proto checkout
-  - 与 release 保持一致
-- Test Points:
-  - 审阅 workflow 路径
-  - `git diff --check`
-- Rollback:
-  - 回退 `ci.yml` 到当前主线版本
-
-##### ANDRELCHK-4 - Release 文档对齐
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 修正文档中“只 checkout Server”的过时描述。
-- Files / Modules:
-  - `docs/release.md`
-- Write Set:
-  - `docs/release.md`
-- Acceptance:
-  - 文档明确说明 Actions 会 checkout Server / SDK / Proto
-  - 原因与 `hubmobile/go.mod` 的 `replace` 链对应
-- Test Points:
-  - 文档审阅
-- Rollback:
-  - 回退 `docs/release.md`
-
-##### ANDRELCHK-5 - 验证、审查与归档
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 让本轮修复、验证与经验可审计。
+- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
+- Goal: 确保本轮实现、验证和可复用经验可审计。
 - Files / Modules:
   - `plan.md`
-  - `docs/change/2026-04-01_android-release-checkout-deps.md`
-  - `docs/lessons/README.md`（仅当 lesson 需要更新）
-- Write Set:
-  - `plan.md`
-  - `docs/change/2026-04-01_android-release-checkout-deps.md`
+  - `docs/change/2026-04-01_android-hub-resilience.md`
+  - `docs/lessons/*.md`（conditional）
   - `docs/lessons/README.md`（conditional）
 - Acceptance:
-  - 自审 checklist 完整
-  - 变更归档包含背景、验证、回滚、lesson impact
+  - 3.3 checklist 完整
+  - `docs/change` 记录背景、实现、验证、回滚和 lesson impact
+  - 若新增 lesson，同步更新 `docs/lessons/README.md`
 - Test Points:
   - `git diff --check`
   - `git status --short`
 - Rollback:
-  - 删除本轮归档并回退相关文件
-
-##### ANDRELCHK-6 - 依赖仓 checkout 显式 pin 到 main
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 避免 `actions/checkout` 落到依赖仓的 default branch，而不是 Android release 期望的 `main`。
-- Files / Modules:
-  - `.github/workflows/release.yml`
-  - `.github/workflows/ci.yml`
-  - `docs/release.md`
-  - `docs/change/2026-04-01_android-release-checkout-deps.md`
-  - `docs/lessons/android-hubmobile-local-replace.md`
-- Write Set:
-  - `.github/workflows/release.yml`
-  - `.github/workflows/ci.yml`
-  - `docs/release.md`
-  - `docs/change/2026-04-01_android-release-checkout-deps.md`
-  - `docs/lessons/android-hubmobile-local-replace.md`
-  - `plan.md`
-- Acceptance:
-  - `Checkout Server / SDK / Proto` 都显式指定 `ref: main`
-  - 文档记录 default branch 漂移风险
-- Test Points:
-  - 审阅 workflow checkout 参数
-  - 对照 `v0.1.28` 日志确认之前的 failure 根因已覆盖
-- Rollback:
-  - 回退 workflow 与文档的 `ref: main` 变更
-
-##### ANDRELCHK-7 - 重发 tag 验证 release
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-release-workflow-deps\plan.md`
-- Goal: 用新的 release run 验证 workflow 是否越过 `Build AAR (gomobile)`。
-- Files / Modules:
-  - `repo/MyFlowHub-Android/main`（控制面 merge / tag）
-- Write Set:
-  - `repo/MyFlowHub-Android/main`
-  - remote `main`
-  - remote tag
-- Acceptance:
-  - 新 tag 触发新的 release run
-  - 至少确认 checkout 已拉到 `main`
-  - 优先确认是否越过 `Build AAR (gomobile)`
-- Test Points:
-  - GitHub Actions run 状态与日志
-- Rollback:
-  - 如误发 tag，删除远端 tag；如主线提交有误，另起 revert
+  - 删除本轮 archive / lesson 并回退实现文件
 
 #### Dependencies
-- `hubmobile/go.mod` 中的本地 `replace` 目录结构
-- GitHub 仓库：
-  - `yttydcs/myflowhub-server`
-  - `yttydcs/myflowhub-sdk`
-  - `yttydcs/myflowhub-proto`
-- Actions 基础设施：
-  - `actions/checkout@v4`
-  - `ubuntu-latest`
+- Android foreground service 生命周期与通知能力
+- `HubBridge.start/stop/status`
+- `Prefs.load/save`
+- `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md` 中已有的父链自动重连语义
 
 #### Risks and Notes
-- 本轮无法在本地直接模拟 GitHub runner 的远端 checkout 权限与网络稳定性，只能做静态与结构验证。
-- GitHub 日志下载接口对匿名访问受限，因此归档中的失败原因基于 run 元数据、workflow 结构与仓内依赖链综合判断。
-- `v0.1.28` follow-up 日志已确认 `MyFlowHub-Proto` 的 default branch 为 `refactor/proto-extract`，因此 workflow 若不显式写 `ref: main`，checkout 结果会与当前 release 期望不一致。
+- 本轮聚焦“服务 / 进程重建后的恢复”和“状态连续性”，不承诺安卓平台意义上的强保活。
+- `hubmobile.Start()` 在 runtime 已存在时会返回当前状态，因此恢复路径即使遇到重复 start，也不会创建双实例。
+- UI 当前会把 Hub 表单持续保存到 `Prefs`；因此本轮必须额外引入“运行快照”，避免恢复语义与表单草稿混淆。
 
 #### Parallelism Assessment
-- 本轮变更集中在两个 workflow 和一份文档，写集高度重叠，不适合并行派发。
+- 本轮写集集中在 `HubService`、`Prefs`、`HubScreen` 和测试，状态逻辑高度耦合，不适合并行派发。
 - 子Agent：不使用。
 
 #### Issue List
 - 无
 
 ### Stage 3.2 - Implementation
-- `ANDRELCHK-1`
-  - 已将旧 `plan.md` 归档到 `docs/plan_archive/plan_archive_2026-04-01_android-rfcomm-listener-config-prev.md`，并重建当前 workflow 的控制文档。
-- `ANDRELCHK-2`
-  - `release.yml` 已补齐 `MyFlowHub-SDK` 与 `MyFlowHub-Proto` checkout。
-- `ANDRELCHK-3`
-  - `ci.yml` 已补齐 `MyFlowHub-SDK` 与 `MyFlowHub-Proto` checkout。
-- `ANDRELCHK-4`
-  - `docs/release.md` 已改为说明完整的 Hubmobile 本地依赖拓扑。
-- `ANDRELCHK-5`
-  - 已更新 lesson，并新增 `docs/change/2026-04-01_android-release-checkout-deps.md` 归档。
-- `ANDRELCHK-6`
-  - 待执行：基于 `v0.1.28` 失败日志，为依赖仓 checkout 增加显式 `ref: main`。
-- `ANDRELCHK-7`
-  - 待执行：workflow 修复后重发 tag 并复核远端 release。
+- `ANDHUBRES-2`
+  - `Prefs.kt` 新增运行快照和 `desiredRunning` 持久化接口。
+  - `HubService.kt` 改为在 `ACTION_START` 时写入最近一次启动快照，在 `ACTION_STOP` 时清理 `desiredRunning`。
+  - `HubService.kt` 在 `intent == null` 场景下按持久化快照恢复，并在快照损坏或缺失时显式清理恢复状态。
+- `ANDHUBRES-3`
+  - 新增 `HubServiceSupport.kt`，抽出运行配置归一化、恢复决策和通知文本逻辑。
+  - `HubService.kt` 增加后台状态轮询，按 `bridge.status()` 更新 `state` 和前台通知。
+- `ANDHUBRES-4`
+  - `HubScreen.kt` 增加 bound service 存在时的前台状态轮询，使页面状态能持续刷新。
+- `ANDHUBRES-5`
+  - 新增 `HubServiceSupportTest.kt`，覆盖恢复和通知文本核心规则。
+  - 使用 `ANDROID_HOME=D:\project\MyFlowHub3\_android-sdk`、`ANDROID_SDK_ROOT=D:\project\MyFlowHub3\_android-sdk` 执行 `.\gradlew.bat testDebugUnitTest` 通过。
 
 ### Stage 3.3 - Code Review
 - 需求覆盖：通过
+  - 已覆盖服务恢复、显式 Stop 不自动恢复、状态连续性和单测验证。
 - 架构合理性：通过
+  - Android 侧只修宿主生命周期，不重复实现 Go runtime 的父链重连。
 - 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：通过
+  - 状态轮询保持秒级低频，通知只在状态变化时更新。
 - 可读性与一致性：通过
+  - 运行快照与表单配置分离，职责边界清晰。
 - 可扩展性与配置化：通过
+  - 后续若需要 boot restore 或更多后台策略，可复用同一套快照 / 恢复 helper。
 - 稳定性与安全：通过
-- 测试覆盖情况：部分通过
-  - 已做静态结构校验与文档一致性校验；尚未执行远端 Actions rerun
+  - 恢复前检查快照；启动失败和恢复失败都会清理 `desiredRunning`，避免错误循环。
+- 测试覆盖情况：通过
+  - 本地 JUnit 已覆盖恢复与通知逻辑；`testDebugUnitTest` 通过。
+  - 残余风险：当前环境未做真机进程回收场景验证。
 - 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）：通过
-- Follow-up 结论：
-  - `v0.1.28` 远端实跑暴露新的确定性问题，需回到 `3.1 / 3.2` 增补 `ref: main` 修复后再重新审查。
+  - 未使用子 Agent。
 
 ### Stage 4 - Change Archive
 - 使用 `$m-docs` 完成变更归档与 lesson 路由校验。
-- `docs/change/2026-04-01_android-release-checkout-deps.md`：已创建
-- `docs/lessons/android-hubmobile-local-replace.md`：已更新
+- `docs/change/2026-04-01_android-hub-resilience.md`：已创建
+- `docs/lessons/android-hub-service-restart.md`：已创建
+- `docs/lessons/README.md`：已更新
 - Requirements impact: `none`
 - Specs impact: `none`
 - Lessons impact: `updated`
 
 阻塞：否
-返回 3.2 执行 follow-up 修复
+等待用户确认是否结束本轮 workflow

@@ -12,6 +12,9 @@ object Prefs {
     private const val KEY_RFCOMM_ENABLE = "rfcomm_enable"
     private const val KEY_RFCOMM_UUID = "rfcomm_uuid"
     private const val KEY_RFCOMM_INSECURE = "rfcomm_insecure"
+    // Keep the running snapshot separate from the editable Hub form state.
+    private const val KEY_HUB_RUN_DESIRED = "hub_run_desired"
+    private const val KEY_HUB_RUN_SNAPSHOT = "hub_run_snapshot"
 
     // Legacy key: before identity split, Hub SelfID and UI DeviceID shared the same storage.
     private const val KEY_SELF_ID_LEGACY = "self_id"
@@ -142,6 +145,50 @@ object Prefs {
             .putString(KEY_RFCOMM_UUID, cfg.rfcommServiceUuid.trim())
             .putBoolean(KEY_RFCOMM_INSECURE, cfg.rfcommInsecure)
             .apply()
+    }
+
+    fun saveHubRunSnapshot(context: Context, cfg: HubConfig) {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val snapshot = JSONObject()
+            .put("addr", cfg.addr)
+            .put("parent_addr", cfg.parentAddr)
+            .put("self_id", cfg.selfId)
+            .put("rfcomm_listen_enabled", cfg.rfcommListenEnabled)
+            .put("rfcomm_service_uuid", cfg.rfcommServiceUuid.trim())
+            .put("rfcomm_insecure", cfg.rfcommInsecure)
+            .toString()
+        sp.edit()
+            .putString(KEY_HUB_RUN_SNAPSHOT, snapshot)
+            .apply()
+    }
+
+    fun loadHubRunSnapshot(context: Context): HubConfig? {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = sp.getString(KEY_HUB_RUN_SNAPSHOT, null) ?: return null
+        val obj = JSONObject(raw)
+        val rfcommUuid = obj.optString("rfcomm_service_uuid", "")
+            .trim()
+            .ifBlank { BluetoothRfcommSupport.defaultServiceUuid() }
+        return HubConfig(
+            addr = obj.optString("addr", ":9000"),
+            parentAddr = obj.optString("parent_addr", ""),
+            selfId = obj.optString("self_id", ""),
+            rfcommListenEnabled = obj.optBoolean("rfcomm_listen_enabled", false),
+            rfcommServiceUuid = rfcommUuid,
+            rfcommInsecure = obj.optBoolean("rfcomm_insecure", false),
+        )
+    }
+
+    fun setHubDesiredRunning(context: Context, desired: Boolean) {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        sp.edit()
+            .putBoolean(KEY_HUB_RUN_DESIRED, desired)
+            .apply()
+    }
+
+    fun isHubDesiredRunning(context: Context): Boolean {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return sp.getBoolean(KEY_HUB_RUN_DESIRED, false)
     }
 
     data class ClientConfig(
