@@ -83,11 +83,22 @@ git push origin v0.1.0
   - `myflowhub.aar`（用于复用/审计）
   - `build-info.txt`（记录 Android/Server commit 等信息）
 
-## 3) 说明：Server 依赖（对齐现状）
+## 3) 说明：Hubmobile 本地依赖（对齐现状）
 
-当前 `hubmobile/go.mod` 使用 `replace ../../MyFlowHub-Server`。
+当前 `hubmobile/go.mod` 使用以下本地 `replace`：
 
-GitHub Actions 会额外 checkout `yttydcs/myflowhub-server` 到同一 workspace 的 `repo/MyFlowHub-Server`，以保证：
-- CI/Release 构建时 APK 始终内置 Hub（通过 `gomobile bind` 生成 AAR）。
-- Release 采用 `myflowhub-server` 的 `main` 最新提交，并写入 `build-info.txt` 以便审计与回放。
+- `../../MyFlowHub-Server`
+- `../../MyFlowHub-SDK`
+- `../../MyFlowHub-Proto`
+
+GitHub Actions 会额外 checkout 以下仓库到同一 workspace，以保证 `GOWORK=off` 下的 `gomobile bind` 能命中与本地开发一致的相对目录结构：
+
+- `yttydcs/myflowhub-server` -> `repo/MyFlowHub-Server`
+- `yttydcs/myflowhub-sdk` -> `repo/MyFlowHub-SDK`
+- `yttydcs/myflowhub-proto` -> `repo/MyFlowHub-Proto`
+
+这样可以保证：
+- CI / Release 构建时 APK 始终内置 Hub（通过 `gomobile bind` 生成 AAR）。
+- runner 上的 Go module 解析与当前 `hubmobile/go.mod` 保持一致，避免因为本地 `replace` 目录缺失而在 `Build AAR (gomobile)` 失败。
+- Release 仍采用 `myflowhub-server` 的 `main` 最新提交，并写入 `build-info.txt` 以便审计与回放。
 

@@ -24,6 +24,18 @@ jobs:
           repository: yttydcs/myflowhub-server
           path: repo/MyFlowHub-Server
 
+      - name: Checkout SDK (for hubmobile replace)
+        uses: actions/checkout@v4
+        with:
+          repository: yttydcs/myflowhub-sdk
+          path: repo/MyFlowHub-SDK
+
+      - name: Checkout Proto (for hubmobile replace)
+        uses: actions/checkout@v4
+        with:
+          repository: yttydcs/myflowhub-proto
+          path: repo/MyFlowHub-Proto
+
       - name: Parse tag -> versionName/versionCode
         id: version
         shell: bash
