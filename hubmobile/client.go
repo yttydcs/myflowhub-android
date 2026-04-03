@@ -51,6 +51,7 @@ func ensureClient() *sdkawait.Client {
 		return client
 	}
 	c := sdkawait.NewClient(context.Background(), onUnmatchedFrame, onClientError)
+	c.SetOnFrame(onObservedFrame)
 	client = c
 	return c
 }

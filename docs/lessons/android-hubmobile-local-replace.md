@@ -3,6 +3,7 @@
 ## Summary
 - 当 Android 仓的 `hubmobile` 使用本地 `MyFlowHub-Server` worktree 构建 AAR 时，如果 Server main 已依赖未发布的 Proto 包（例如 `protocol/stream`），仅 replace `Server/SDK` 还不够；本地构建还需要把 `MyFlowHub-Proto` 纳入依赖解析。
 - 当 Android 仓不是从控制面 `repo/MyFlowHub-Android` 路径执行，而是从 `worktrees/<branch>` 执行时，`hubmobile/go.mod` 中的相对 `replace ../../MyFlowHub-*` 还会指向 `worktrees/` 下的同名目录；若这些目录不存在，`go test` / `gomobile bind` 会直接失败。
+- 当本地 `MyFlowHub-Server` worktree 已经发生 API 漂移，而当前任务只需要验证 Android 仓本轮改动时，可以临时生成一个不引用本地 Server replace 的 `modfile`，用发布版 Server 先隔离验证 `hubmobile` 自身代码。
 
 ## Lookup Hints
 - `gomobile bind`
@@ -18,6 +19,8 @@
 - `default branch`
 - `worktrees/MyFlowHub-Server`
 - `junction`
+- `go.verify.mod`
+- `-modfile`
 
 ## Symptoms
 - 在 `hubmobile/` 下执行 `go test ./...` 时提示 `go: updates to go.mod needed`。
@@ -28,6 +31,7 @@
 - GitHub Actions 的 `Build AAR (gomobile)` 失败，但前置 `Setup Go` / `Install gomobile` / `Decode keystore` 已通过。
 - GitHub Actions 的依赖仓 checkout 成功，但实际拉到的是依赖仓的 default branch，而不是 Android release 期望的 `main`。
 - 在 Android worktree 下执行 `cd hubmobile; go test ./...` 或 `.\scripts\build_aar.ps1` 时，直接提示找不到 `../../MyFlowHub-Server` / `../../MyFlowHub-SDK` / `../../MyFlowHub-Proto`。
+- 在 Android worktree 下执行 `cd hubmobile; go test ./...` 时，报错来自 `MyFlowHub-Server` 本地 API 漂移，而不是当前 Android 仓代码本身。
 
 ## Impact
 - Android 本地 AAR 无法重建。
@@ -49,6 +53,7 @@
 - GitHub Actions 如果只 checkout 其中一部分依赖仓，runner 上的目录结构就会和 `hubmobile/go.mod` 脱节，`gomobile bind` 会在 module 解析阶段失败。
 - 如果依赖仓的 default branch 不是 `main`，而 workflow 又没有显式写 `ref: main`，runner 会拉到错误分支，表现为“看似目录齐全，但协议类型仍旧 undefined”。
 - `hubmobile/go.mod` 的相对 `replace ../../MyFlowHub-*` 默认假设当前 Android 仓位于控制面 `repo/` 目录；一旦换成 `worktrees/<branch>` 拓扑，解析结果就变成 `D:\project\MyFlowHub3\worktrees\MyFlowHub-*`，必须显式准备这些目录。
+- 当任务范围只允许修改 Android 仓时，直接去修本地 `MyFlowHub-Server` worktree 会扩大变更面；这时需要先把“验证 Android 仓自身代码”与“修外部依赖仓状态”分离。
 
 ## Investigation Trail
 - 先在 `hubmobile/` 下跑 `go test ./...`，确认不是 Kotlin / Android 构建问题，而是 Go module 图未闭合。
@@ -75,6 +80,12 @@
   - 之后重新执行：
     - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
     - `.\scripts\build_aar.ps1 ...`
+- 若当前阻塞来自本地 `MyFlowHub-Server` worktree API 漂移，但本轮只需要验证 Android 仓代码：
+  - 临时复制 `hubmobile/go.mod` 为 `go.verify.mod`
+  - 去掉其中 `replace github.com/yttydcs/myflowhub-server => ../../MyFlowHub-Server`
+  - 执行：
+    - `cd hubmobile; $env:GOWORK='off'; go test "-modfile=go.verify.mod" -mod=mod ./... -count=1 -p 1`
+  - 验证完成后删除 `go.verify.mod` / `go.verify.sum`
 
 ## Prevention / Guardrails
 - 只要 `hubmobile` 本地 replace 到 `MyFlowHub-Server`，就要同步检查 Server 是否已经消费未发布的 Core / Proto / SubProto 代码。
@@ -83,9 +94,11 @@
 - 只要 `hubmobile/go.mod` 中仍保留本地 `replace`，GitHub Actions 就必须镜像同样的目录拓扑；不要只更新 `go.mod` 而漏改 workflow checkout。
 - 对跨仓依赖，除非明确需要跟随 default branch，否则在 workflow 中固定 `ref: main`（或固定 tag / SHA），避免隐式漂移。
 - 只要 Android 任务在 worktree 中需要执行 `hubmobile` 本地验证，就要先确认 `worktrees/` 下是否已有 `MyFlowHub-Server` / `MyFlowHub-SDK` / `MyFlowHub-Proto` 的镜像或同名 worktree。
+- 若任务明确限制“只改 Android 仓”，遇到外部依赖 worktree 漂移时，应先使用临时 `modfile` 完成 Android 仓隔离验证，再决定是否要另起 workflow 修外部依赖。
 
 ## Related Docs
 - [2026-03-31_android-rfcomm-listener-config.md](../change/2026-03-31_android-rfcomm-listener-config.md)
 - [2026-03-31_android-rfcomm-basic-usability.md](../change/2026-03-31_android-rfcomm-basic-usability.md)
 - [2026-04-01_android-release-checkout-deps.md](../change/2026-04-01_android-release-checkout-deps.md)
 - [2026-04-02_android-file-module.md](../change/2026-04-02_android-file-module.md)
+- [2026-04-03_android-file-pull-download-v1.md](../change/2026-04-03_android-file-pull-download-v1.md)

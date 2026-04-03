@@ -2,9 +2,14 @@ package hubmobile
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +20,42 @@ import (
 const defaultFileTimeout = 8 * time.Second
 const fileOpMkdir = "mkdir"
 const defaultReadTextMaxBytes = 65536
+
+var fileReadAwaitFn = fileReadAndAwait
+var fileWriteAwaitFn = fileWriteAndAwait
+
+type filePullStart struct {
+	Code         int    `json:"code"`
+	Msg          string `json:"msg,omitempty"`
+	Op           string `json:"op,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	Provider     uint32 `json:"provider,omitempty"`
+	Consumer     uint32 `json:"consumer,omitempty"`
+	Dir          string `json:"dir,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Size         uint64 `json:"size,omitempty"`
+	Sha256       string `json:"sha256,omitempty"`
+	StartFrom    uint64 `json:"start_from,omitempty"`
+	Chunk        uint32 `json:"chunk_bytes,omitempty"`
+	LocalBaseDir string `json:"local_base_dir,omitempty"`
+	LocalPath    string `json:"local_path,omitempty"`
+}
+
+type fileOfferStart struct {
+	Code         int    `json:"code"`
+	Msg          string `json:"msg,omitempty"`
+	Op           string `json:"op,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	Provider     uint32 `json:"provider,omitempty"`
+	Consumer     uint32 `json:"consumer,omitempty"`
+	Dir          string `json:"dir,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Size         uint64 `json:"size,omitempty"`
+	Sha256       string `json:"sha256,omitempty"`
+	ResumeFrom   uint64 `json:"resume_from,omitempty"`
+	LocalBaseDir string `json:"local_base_dir,omitempty"`
+	LocalPath    string `json:"local_path,omitempty"`
+}
 
 func FileList(sourceID, hubID, targetID, dir string) (string, error) {
 	target, err := parseUint32("target_id", targetID)
@@ -69,6 +110,186 @@ func FileCreateDir(sourceID, hubID, targetID, dir, name string) (string, error) 
 	return fileWriteAndAwait(sourceID, hubID, req)
 }
 
+func FilePull(sourceID, hubID, targetID, dir, name, wantHash, localBaseDir string) (string, error) {
+	target, err := parseUint32("target_id", targetID)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	src, hub, err := parseFileRoute(sourceID, hubID, target)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	if target == src {
+		err := errors.New("pull target must be remote")
+		storeLastError(err)
+		return "", err
+	}
+	want, err := parseWantHash(wantHash)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	resolvedBaseDir, err := ensureFileRuntime().configure(src, hub, localBaseDir)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	localPath, err := resolveLocalDownloadPath(resolvedBaseDir, dir, name)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+
+	req := protocolfile.ReadReq{
+		Op:       protocolfile.OpPull,
+		Target:   target,
+		Dir:      strings.TrimSpace(dir),
+		Name:     strings.TrimSpace(name),
+		WantHash: &want,
+	}
+	raw, err := fileReadAwaitFn(sourceID, hubID, req)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+
+	var resp protocolfile.ReadResp
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	out := filePullStart{
+		Code:         resp.Code,
+		Msg:          strings.TrimSpace(resp.Msg),
+		Op:           strings.TrimSpace(resp.Op),
+		SessionID:    strings.TrimSpace(resp.SessionID),
+		Provider:     resp.Provider,
+		Consumer:     resp.Consumer,
+		Dir:          strings.TrimSpace(resp.Dir),
+		Name:         strings.TrimSpace(resp.Name),
+		Size:         resp.Size,
+		Sha256:       strings.TrimSpace(resp.Sha256),
+		StartFrom:    resp.StartFrom,
+		Chunk:        resp.Chunk,
+		LocalBaseDir: resolvedBaseDir,
+		LocalPath:    localPath,
+	}
+	encoded, _ := json.Marshal(out)
+	return string(encoded), nil
+}
+
+func FileOffer(sourceID, hubID, targetID, dir, name, wantHash, localBaseDir string) (string, error) {
+	target, err := parseUint32("target_id", targetID)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	src, hub, err := parseFileRoute(sourceID, hubID, target)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	if target == src {
+		err := errors.New("offer target must be remote")
+		storeLastError(err)
+		return "", err
+	}
+	want, err := parseWantHash(wantHash)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	resolvedBaseDir, err := ensureFileRuntime().configure(src, hub, localBaseDir)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	localPath, err := resolveLocalDownloadPath(resolvedBaseDir, dir, name)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	info, err := os.Stat(localPath)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	if info.IsDir() {
+		err := errors.New("offer source must be a file")
+		storeLastError(err)
+		return "", err
+	}
+	if info.Size() <= 0 {
+		err := errors.New("offer source file must not be empty")
+		storeLastError(err)
+		return "", err
+	}
+
+	shaHex := ""
+	if want {
+		shaHex, err = sha256FileHex(localPath)
+		if err != nil {
+			storeLastError(err)
+			return "", err
+		}
+	}
+	sessionID, err := newFileSessionID()
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	overwrite := true
+	req := protocolfile.WriteReq{
+		Op:        protocolfile.OpOffer,
+		Target:    target,
+		SessionID: sessionID,
+		Dir:       strings.TrimSpace(dir),
+		Name:      strings.TrimSpace(name),
+		Size:      uint64(info.Size()),
+		Sha256:    shaHex,
+		Overwrite: &overwrite,
+	}
+	raw, err := fileWriteAwaitFn(sourceID, hubID, req)
+	if err != nil {
+		storeLastError(err)
+		return "", err
+	}
+
+	var resp protocolfile.WriteResp
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		storeLastError(err)
+		return "", err
+	}
+	if !resp.Accept {
+		err := errors.New(strings.TrimSpace(resp.Msg))
+		if err.Error() == "" {
+			err = errors.New("offer rejected")
+		}
+		storeLastError(err)
+		return "", err
+	}
+
+	out := fileOfferStart{
+		Code:         resp.Code,
+		Msg:          strings.TrimSpace(resp.Msg),
+		Op:           strings.TrimSpace(resp.Op),
+		SessionID:    strings.TrimSpace(resp.SessionID),
+		Provider:     resp.Provider,
+		Consumer:     resp.Consumer,
+		Dir:          strings.TrimSpace(resp.Dir),
+		Name:         strings.TrimSpace(resp.Name),
+		Size:         resp.Size,
+		Sha256:       strings.TrimSpace(resp.Sha256),
+		ResumeFrom:   resp.ResumeFrom,
+		LocalBaseDir: resolvedBaseDir,
+		LocalPath:    localPath,
+	}
+	encoded, _ := json.Marshal(out)
+	return string(encoded), nil
+}
+
 func fileReadAndAwait(sourceID, hubID string, req protocolfile.ReadReq) (string, error) {
 	src, hub, err := parseFileRoute(sourceID, hubID, req.Target)
 	if err != nil {
@@ -79,7 +300,7 @@ func fileReadAndAwait(sourceID, hubID string, req protocolfile.ReadReq) (string,
 		storeLastError(err)
 		return "", err
 	}
-	if strings.TrimSpace(req.Op) == protocolfile.OpReadText && strings.TrimSpace(req.Name) == "" {
+	if (strings.TrimSpace(req.Op) == protocolfile.OpReadText || strings.TrimSpace(req.Op) == protocolfile.OpPull) && strings.TrimSpace(req.Name) == "" {
 		err := errors.New("name is required")
 		storeLastError(err)
 		return "", err
@@ -225,4 +446,34 @@ func validateFileResp(expectedOp, actualOp string, code int, msg, fallback strin
 		return fmt.Errorf("unexpected file op: want %s, got %s", expected, actual)
 	}
 	return nil
+}
+
+func sha256FileHex(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func newFileSessionID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		raw[0:4],
+		raw[4:6],
+		raw[6:8],
+		raw[8:10],
+		raw[10:16],
+	), nil
 }

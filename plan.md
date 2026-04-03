@@ -1,10 +1,10 @@
-# Plan - Android：File 模块 v1
+# Plan - Android：Windows AAR 构建闭环 v1
 
 ## Workflow Information
 - Repo: `MyFlowHub-Android`
-- Branch: `feat/android-file-module`
-- Base: `origin/main@44b0683`
-- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- Branch: `feat/android-file-pull-v1`
+- Base: `main@77c6d77`
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1`
 - Current Stage: `4`
 
 ## Stage Records
@@ -12,360 +12,298 @@
 ### Initialization
 - guide.md: `not found`
 - 控制面仓：`D:\project\MyFlowHub3\repo\MyFlowHub-Android`
-- 主执行仓：`D:\project\MyFlowHub3\worktrees\feat-android-file-module`
-- 当前 worktree 从 `origin/main@44b0683` 建立
+- 主执行仓：`D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1`
+- 当前 worktree 从 `main@77c6d77` 建立
+- 已归档上一轮计划：
+  - `docs/plan_archive/plan_archive_2026-04-03_android-file-offer-upload-v1-prev.md`
 
 ### Stage 1 - Requirements Analysis
 #### 目标
-- 为 Android 端补齐一个可正式使用的 File 模块入口，至少让用户不再依赖通用协议控制台，就能完成文件目录浏览、文本预览和目录创建。
+- 让 Android File 现有源码能力更接近“可真正装包验证”的状态，优先补齐 Windows 本地 `build_aar.ps1` 的可用性：正确解析 SDK/NDK 与 gomobile 工具链，失败时显式退出，不再出现 AAR 未生成却打印 `Done` 的假成功。
 
 #### 范围
 - 必须
-  - 新增独立 `File` 页面并接入主导航。
-  - 基于已存在的 `sendAndAwait` 能力，跑通 `file` 子协议的 `read(op=list)`、`read(op=read_text)`、`write(op=mkdir)`。
-  - 支持目标节点输入、目录进入/返回、刷新列表、文本预览、新建目录。
-  - 对登录缺失、目标节点非法、响应失败、返回格式异常给出明确错误。
-  - 补充纯逻辑单元测试，覆盖路径规范化、目录名校验、响应解析。
+  - 对齐 Windows `scripts/build_aar.ps1` 与现有 `scripts/build_aar.sh` / CI 的关键行为：解析 `ANDROID_HOME` / `ANDROID_SDK_ROOT`，自动探测已安装 NDK，按 `hubmobile/go.mod` 版本安装 `gomobile/gobind`。
+  - 修复 PowerShell 下 native command 失败未中断的问题，确保 `gomobile init` / `gomobile bind` 非零退出码会使脚本失败。
+  - 在脚本成功路径上校验 `app/libs/myflowhub.aar` 真实产出，避免“命令跑完但产物不存在”。
+  - 在当前机器上重新验证 AAR 构建链路；若环境仍缺 NDK 或 cmdline-tools，必须明确记录阻塞点和下一步。
 - 可选
-  - 适度保留高级调试入口，继续保留 `Protocols` 通用控制台。
+  - 若本机能在不扩大仓库改动面的前提下补齐 NDK，再次执行构建并验证 `assembleDebug` 能把新 AAR 打进 APK。
 - 不做
-  - 不做 Win 端已有的上传、下载、offer、task 列表、自动接收、任务重试/取消。
-  - 不做浏览节点持久化、树形节点选择器、后台事件推送。
-  - 不做 File 任务事件流和后台传输状态管理。
+  - 不改 Android File 协议语义、UI 流程或 Go `offer/pull` 逻辑。
+  - 不在仓库脚本里自动下载超大 NDK 包，也不把机器私有路径硬编码进脚本。
+  - 不修改 CI Bash 脚本，除非确认 Windows 脚本修复后仍存在必须同步的行为差异。
 
 #### 使用场景
-- 用户完成登录后，想直接浏览某个节点的 `file` 目录，而不是手工拼 JSON 发 `SubProto=5`。
-- 用户需要在 Android 端快速预览远端文本文件，例如配置片段、日志片段、说明文件。
-- 用户需要在目标节点当前目录下创建一个子目录，为后续文件管理做准备。
+- 开发者在 Windows 上修改 `hubmobile` 导出后，需要本地重建 `app/libs/myflowhub.aar`，让 APK 真正带上新的 Go 能力。
+- 当前 Android File 已补齐 `pull/offer` 代码，但由于 AAR 没有产出，设备上仍无法验证新导出方法。
+- 当本机 SDK/NDK 不完整时，开发者需要第一时间知道缺的是什么，而不是误以为构建已经成功。
 
 #### 功能需求
-- `File` 页面必须要求已登录的 `source node id`，未登录时不允许发起 file 请求。
-- 控制请求必须以当前登录态的 `hubId` 作为 header `TargetID`，实际浏览目标节点放在 file request 的 `data.target` 中。
-- 页面上的目标节点默认取当前登录态中的 `hubId`，同时允许用户手工修改。
-- 目录列表请求必须走 `action=read`、`op=list`，默认非递归。
-- 文本预览请求必须走 `action=read`、`op=read_text`，默认最大预览 64KB。
-- 新建目录请求必须走 `action=write`、`op=mkdir`，并对目录名做本地前置校验。
-- 点击目录项后必须进入子目录并自动刷新；点击文件项后必须打开预览。
-- 返回上级目录、手动刷新、预览关闭后重新打开等基本交互必须正常工作。
+- `build_aar.ps1` 必须优先复用现有环境变量；若仅设置了 `ANDROID_SDK_ROOT`，脚本应自动补齐 `ANDROID_HOME`。
+- 当 `ANDROID_NDK_HOME` 未设置时，脚本必须尝试从 `ANDROID_SDK_ROOT/ndk/*` 中探测最新已安装 NDK；若仍找不到，显式失败并给出清晰提示。
+- 当 `gomobile` 或 `gobind` 缺失时，脚本必须优先按 `hubmobile/go.mod` 中的 `golang.org/x/mobile` 版本安装，不直接默认 `@latest`。
+- `gomobile init`、`gomobile bind`、`go install` 等 native command 失败时，脚本必须立即失败，不能继续打印成功信息。
+- 只有当目标 AAR 文件真实存在时，脚本才能打印成功。
 
 #### 非功能需求
-- 改动面保持最小，但必须保证 file 控制帧协议语义正确。
-- 允许新增 `hubmobile` file 导出 API；但不修改 Server / Proto 规格本身。
-- 解析与校验逻辑应提取为纯 Kotlin helper，便于本地 JUnit 验证。
+- 保持现有脚本参数接口不变：`-Target`、`-AndroidApi`、`-JavaPkg`、`-OutFile`。
+- 改动尽量收敛在 Windows 脚本与必要文档，不扩散到 app 运行时代码。
+- 错误信息应足够明确，能直接指导本地排障。
+- 不引入环境相关硬编码，不依赖特定用户目录。
 
 #### 输入输出
 - 输入
-  - 用户需求：先做 Android `File` 模块。
-  - Android 现状：
-    - 仅在 `ProtocolsScreen.kt` 中通过通用控制台可手动调用 `SubProto=5`
-    - 没有正式的 File 页面和 file 专用桥接方法
-  - 相关规格：
-    - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\file.md`
-  - 相关基础代码：
-    - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
-    - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-    - `app/src/main/java/com/myflowhub/android/ui/ProtocolsScreen.kt`
-    - `hubmobile/client.go`
+  - 用户需求：继续推进 Android File 的基本可用性
+  - 当前现状：
+    - Android File 的 `list/read_text/mkdir/pull/offer` 已完成源码级接线
+    - `app/build.gradle.kts` 只有在 `app/libs/myflowhub.aar` 存在时才会把 Go 运行时打进 APK
+    - 当前机器 `C:\Users\HelloWorld\AppData\Local\Android\Sdk` 下没有 `ndk/` 目录
+    - 当前 `scripts/build_aar.ps1` 在 `gomobile` 失败时仍可能打印 `Done`
 - 输出
-  - 新的 Android `File` 页面
-  - `hubmobile/file.go` 与 `GoClientBridge` 中的 file 专用封装
-  - file 响应解析 / 校验 helper 与单元测试
-  - `docs/change/2026-04-02_android-file-module.md`
+  - 更健壮的 Windows `build_aar.ps1`
+  - 明确的本地验证结果：AAR 已产出，或被环境阻塞且阻塞点明确
+  - 对应计划、自审与归档文档
 
 #### 边界异常
-- 未登录或 `source node id` 为空时，必须阻止请求并提示需要先登录。
-- `target node id` 非正整数时，必须阻止请求。
-- 目录名为空、为 `.` / `..`、包含 `/` 或 `\` 时，必须阻止 `mkdir`。
-- 若服务端返回 `code != 1`，必须展示服务端消息或包含 code 的默认错误。
-- 若响应 JSON 缺失 `data` 或结构异常，必须显式报错，不得静默吞掉。
-- 本轮不承诺二进制文件预览，不承诺超大文本流式加载。
+- `ANDROID_API` 非法或过低时，必须在真正调用 `gomobile` 前失败。
+- `ANDROID_SDK_ROOT` / `ANDROID_HOME` 缺失或无效时，必须显式失败。
+- `gomobile` / `gobind` 安装失败时，必须显式失败。
+- `gomobile bind` 返回非零退出码或未生成目标 AAR 时，必须显式失败。
+- 本机若缺少 NDK 或 `sdkmanager`，本轮可以记录为环境阻塞，但不能把阻塞伪装成成功。
 
 #### 验收标准
-- 主导航出现 `File` 入口，进入后可操作。
-- 在已登录状态下，输入目标节点后可以列出根目录和子目录内容。
-- 点击文本文件可看到预览内容，并能显示大小 / 截断状态。
-- 输入合法目录名后可以成功创建目录，并在刷新后看到结果。
-- `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1` 通过。
-- `.\gradlew.bat testDebugUnitTest` 通过。
-- `.\gradlew.bat :app:assembleDebug` 通过。
+- `.\\scripts\\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar` 在当前机器上不会再出现“无 AAR 产物但打印 Done”的情况。
+- 若本机存在可用 NDK，脚本执行后 `app/libs/myflowhub.aar` 存在。
+- 若本机仍缺 NDK，脚本输出会明确指出缺失项并以失败结束。
+- 在 AAR 成功产出的情况下，`.\\gradlew.bat :app:assembleDebug` 通过。
 
 #### 风险
-- Android 端仍缺少 Win 的任务系统，因此本轮只覆盖浏览类操作，不覆盖传输闭环。
-- 目标节点选择暂时是手工输入，远端节点发现体验仍弱于 Win。
-- 由于 Android worktree 下 `hubmobile/go.mod` 的本地 `replace` 默认指向控制面 `repo/` 目录，本地 Go/AAR 验证可能需要额外准备依赖目录镜像。
+- 本机当前缺少 NDK，可能导致本轮只能做到“失败显式化”，不能直接产出 AAR。
+- PowerShell 对 native command 的错误传播与 Bash 不同，若处理不完整仍可能留下灰区。
+- `hubmobile/go.mod` 的本地 replace 继续依赖工作区目录拓扑，若外部依赖仓状态漂移，AAR 构建仍可能被其它问题阻塞。
 
 #### Issue List
 - 无
 
 ### Stage 2 - Architecture Design
 #### 总体方案
-- 采用“在 `hubmobile` 新增 file 专用导出 API，再由 Android UI 产品化”的方案：
-  - `hubmobile/file.go` 负责按 file 子协议要求补 `KindCtrl` 前缀、写入 `data.target`，并等待 `read_resp/write_resp`。
-  - `GoClientBridge` 反射新增 `FileList` / `FileReadText` / `FileCreateDir` 方法。
-  - 新建 `FileProtocolSupport.kt`，负责目录规范化、目录名校验和 list/read_text/mkdir 结果解析。
-  - 新建 `FileScreen.kt`，承载浏览、预览和建目录交互。
-  - `AppRoot.kt` 增加 `File` 导航入口。
-- 选型理由：
-  - file 子协议控制帧要求 `payload[0]=KindCtrl`，现有通用 `SendAndAwait` 只编码 JSON message，不满足 file await 语义。
-  - Win 端现有可用实现也是 file 专用 await 路径：header `TargetID=hubId`，请求体 `data.target=目标节点`。
-  - 因此要保证 Android File v1 真正可用，必须在 `hubmobile` 提供 file 专用方法，而不是只在 Kotlin 侧拼 JSON。
+- 采用“让 `scripts/build_aar.ps1` 与已验证过的 `scripts/build_aar.sh` 行为对齐”的方案，不改 app runtime 与 `hubmobile` 业务逻辑。
+- 重点补齐三类缺口：环境变量与 NDK 探测、`gomobile/gobind` 版本固定安装、PowerShell native command 失败传播。
 
-#### 备选对比
-- 方案 A：只在 Kotlin 侧包装 `sendAndAwait`
-  - 优点：Android 代码改动更小
-  - 缺点：无法补齐 file 控制帧 `KindCtrl` 前缀，也无法正确复用 Win 现有 file 路由语义
-- 方案 B：继续只保留 `Protocols` 通用控制台
-  - 优点：零新增接口
-  - 缺点：不可用性问题依旧，不能视为正式 File 模块
-- 采用方案：`hubmobile` file 导出 API + `GoClientBridge` + 独立 UI
+#### 选型理由 / 备选对比
+- 方案 A：只在文档里补充“需要先装 NDK”
+  - 优点：改动最小
+  - 缺点：不能解决当前脚本的假成功，仍然不利于本地排障
+- 方案 B：在 PowerShell 脚本中自动下载并安装 NDK
+  - 优点：理论上最省手工操作
+  - 缺点：副作用大、下载体积大、环境耦合重，不适合默认执行
+- 采用方案：脚本显式校验 + 自动探测已安装环境
+  - 原因：最小改动即可显著提升 Windows 本地可用性，并保持与 CI/Bash 一致
 
 #### 模块职责
-- `hubmobile/file.go`
-  - 负责 file `read/write` 的请求封装
-  - 负责 `KindCtrl` 前缀、`data.target`、`hubID` 路由和同步等待响应
-- `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
-  - 反射 `hubmobile` 新导出的 file 方法
-- `app/src/main/java/com/myflowhub/android/FileProtocolSupport.kt`
-  - 规范化目录路径
-  - 校验目录名
-  - 解析 `list` / `read_text` / `mkdir` data 响应
-  - 提供可单测的纯逻辑
-- `app/src/main/java/com/myflowhub/android/ui/FileScreen.kt`
-  - 管理页面状态
-  - 发起 list/read_text/mkdir 请求
-  - 处理目录导航、预览弹窗、新建目录弹窗和错误提示
-- `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
-  - 将 `File` 页面接入现有导航体系
-- `app/src/test/java/com/myflowhub/android/FileProtocolSupportTest.kt`
-  - 覆盖 helper 纯逻辑和关键错误路径
+- `scripts/build_aar.ps1`
+  - 负责解析本地 Android SDK/NDK 环境
+  - 负责按模块版本安装 `gomobile/gobind`
+  - 负责调用 `gomobile init/bind` 并严格传播失败
+- `docs/m0_smoke.md`（如需）
+  - 若脚本行为或排障入口发生变化，补充本地验证说明
 
 #### 数据 / 调用流
-1. 用户进入 `File` 页面。
-2. 页面读取登录态中的 `cfg.nodeId` 作为 `source id`，读取 `cfg.hubId` 作为 header 路由用 `hubId`，并将浏览目标节点默认设为 `cfg.hubId`。
-3. 用户点击 `Load` / `Refresh` 时，`FileScreen` 调用 `go.fileList(sourceId, hubId, targetId, dir)`。
-4. `GoClientBridge.fileList(...)` 反射调用 gomobile 导出的 `FileList(...)`。
-5. `hubmobile/file.go` 构造 `ReadReq{Op=list, Target=targetId, Dir=...}`，编码 `KindCtrl + JSON(message)`，并通过 `hubID` 路由等待 `read_resp`。
-6. `FileProtocolSupport.parseList(...)` 解析 `dirs/files` 为 UI entry 列表。
-7. 用户点击目录项时更新 `currentDir` 并重复 list；点击文件项时调用 `go.fileReadText(...)`。
-8. 用户创建目录时，`FileScreen` 先用 `FileProtocolSupport.requireFolderName(...)` 校验，再调用 `go.fileCreateDir(sourceId, hubId, targetId, ...)`，`hubmobile/file.go` 发送 `write(op=mkdir)` 并等待 `write_resp`，成功后刷新当前目录。
+1. 脚本读取参数并校验 `AndroidApi`。
+2. 脚本归一化 `ANDROID_HOME` / `ANDROID_SDK_ROOT`，自动探测可用 NDK。
+3. 脚本解析 `hubmobile/go.mod` 中的 `golang.org/x/mobile` 版本，并在缺工具时安装 `gomobile/gobind`。
+4. 脚本执行 `gomobile init`。
+5. 脚本进入 `hubmobile` 执行 `gomobile bind`。
+6. 脚本确认目标 AAR 真实存在后才报告成功。
 
 #### 接口草案
-- `hubmobile.FileList(sourceID, hubID, targetID, dir string) (string, error)`
-- `hubmobile.FileReadText(sourceID, hubID, targetID, dir, name, maxBytes string) (string, error)`
-- `hubmobile.FileCreateDir(sourceID, hubID, targetID, dir, name string) (string, error)`
-- `GoClientBridge.fileList(sourceId: String, hubId: String, targetId: String, dir: String): String`
-- `GoClientBridge.fileReadText(sourceId: String, hubId: String, targetId: String, dir: String, name: String, maxBytes: String = "65536"): String`
-- `GoClientBridge.fileCreateDir(sourceId: String, hubId: String, targetId: String, dir: String, name: String): String`
-- `FileProtocolSupport.normalizeDir(dir: String): String`
-- `FileProtocolSupport.requirePositiveNodeId(raw: String): Long`
-- `FileProtocolSupport.requireFolderName(raw: String): String`
-- `FileProtocolSupport.parseList(raw: String): FileListResult`
-- `FileProtocolSupport.parseReadText(raw: String): FileTextResult`
+- `Ensure-GoBinInPath`
+- `Resolve-XMobileVersion`
+- `Install-GomobileTools`
+- `Resolve-AndroidSdkRoot`
+- `Resolve-AndroidNdkHome`
+- `Invoke-NativeChecked`
 
 #### 错误与安全
-- 所有请求前必须校验 `source id`、`hub id`、`target id` 和目录名，避免无效请求直接打到网络层。
-- `hubmobile` 必须显式补 `KindCtrl` 前缀并等待正确的 `read_resp/write_resp`。
-- `hubmobile` 或 Kotlin 侧在响应 JSON 结构异常时，立即抛出明确错误。
-- 目录名禁止 `.`、`..` 和路径分隔符，减少路径逃逸类误用。
-- 文本预览严格限制最大字节数，避免一次性把大文件内容拉到 UI。
+- 对环境变量、目录存在性和工具缺失都做显式检查。
+- 不在脚本里写入用户专属固定路径，只消费调用方已有环境或标准 SDK 目录结构。
+- 对 native command 的返回码做统一检查，避免 PowerShell 静默继续。
 
 #### 性能与测试策略
-- 列表与预览均按用户手势触发，不增加后台轮询。
-- 目录列表使用普通 `LazyColumn` 渲染即可，当前范围内无需引入复杂缓存。
-- 通过纯 Kotlin helper 提取解析 / 校验逻辑，使用本地 JUnit 覆盖核心规则。
-- `hubmobile` 通过本地 `go test` 覆盖编译与依赖回归。
-- 验证方式：
-  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
-  - `.\gradlew.bat testDebugUnitTest`
-  - `.\gradlew.bat :app:assembleDebug`
+- 仅当 `gomobile` / `gobind` 缺失时才安装，避免重复下载。
+- 优先复用已安装的最新 NDK 目录，不做额外扫描以外的重操作。
+- 验证重点：
+  - 无 NDK 环境下的失败路径是否清晰
+  - 有效环境下是否能真实生成 AAR
+  - `assembleDebug` 是否仍正常
 
 #### 可扩展性设计点
-- `hubmobile/file.go` 后续可继续扩展 `pull/offer/tasks`，不影响当前 UI 层接口。
-- `FileProtocolSupport` 后续可继续增加 `offer/pull` DTO 解析，而不必把 JSON 解析散落在各页面。
-- 当前 `FileScreen` 状态模型可后续替换为 saved browser nodes 或节点树选择器，而不影响 file 协议入口。
+- 未来若要支持显式 `-AndroidSdkRoot` / `-AndroidNdkHome` 参数，可在现有 helper 基础上继续扩展。
+- Windows 脚本与 Bash 脚本对齐后，后续若再调整 gomobile 工具链策略，可双端同步演进。
 
 #### Issue List
 - 无
 
 ### Stage 3.1 - Planning
 #### Project Goal and Current State
-- 当前 Android 端虽然已具备 `file` 协议的底层发送能力，但只有 `ProtocolsScreen.kt` 中的通用控制台可手工调用 `SubProto=5`。
-- 与 Win 相比，Android 缺少正式的 File 页面、file 专用桥接封装和最小可用的浏览交互。
-- 本轮目标是补齐 File v1，而不是一次性追平 Win 的传输任务体系。
+- 当前 Android File 业务能力已经在源码层具备基础可用性，但设备运行时仍未闭环，因为 `app/libs/myflowhub.aar` 尚未重建。
+- `scripts/build_aar.sh` 已具备较完整的 SDK/NDK 与 `gomobile/gobind` 处理逻辑；`scripts/build_aar.ps1` 仍停留在较早版本，且未严格检查 native command 失败。
+- 当前机器 Android SDK 根目录存在，但没有安装 `ndk/` 子目录，因此本轮需要同时修脚本和重新验证环境结果。
 
 #### Docs Governance Routing Decision
 - 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
 - Requirements impact: `none`
 - Specs impact: `none`
 - Related requirements: `none`
-- Related specs:
-  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\file.md`
-- Related lessons: `none`
+- Related specs: `none`
+- Related lessons:
+  - `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1\docs\lessons\android-hubmobile-local-replace.md`
 - Related changes:
-  - `docs/change/2026-02-27_android-hub-ui-v1.md`
-  - `docs/change/2026-03-31_android-rfcomm-basic-usability.md`
-  - `docs/change/2026-04-01_android-hub-resilience.md`
-- 文档路由：
-  - 当前 workflow 控制文档位于 worktree 根 `plan.md`
-  - 上一轮控制文档已归档到 `docs/plan_archive/plan_archive_2026-04-02_android-hub-resilience-prev.md`
-  - 完成结果归档到 `docs/change/2026-04-02_android-file-module.md`
-  - 若本轮形成稳定排障规则，再更新 `docs/lessons`
+  - `docs/change/2026-03-04_android-release-gomobile-pin.md`
+  - `docs/change/2026-04-03_android-file-offer-upload-v1.md`
 
 #### Executable Task List
-- [x] `ANDFILE-1`：归档旧控制文档并建立本轮 `plan.md`
-- [x] `ANDFILE-2`：新增 `hubmobile` file 导出 API、Android helper 与 `GoClientBridge` 封装
-- [x] `ANDFILE-3`：新增 `FileScreen` 并接入 `AppRoot` 导航
-- [x] `ANDFILE-4`：补充 `FileProtocolSupportTest` 并完成本地验证
-- [x] `ANDFILE-5`：完成 3.3 自审与 4 阶段归档
+- [x] `ANDAAR-1`：归档上一轮 `plan.md` 并建立本轮控制文档
+- [x] `ANDAAR-2`：补齐 Windows `build_aar.ps1` 的环境解析、工具安装与失败传播
+- [x] `ANDAAR-3`：执行 AAR / APK 验证，确认当前机器的真实构建结果
+- [x] `ANDAAR-4`：完成 3.3 自审与 4 阶段归档
 
 #### Task Details
-##### ANDFILE-1 - 控制文档切换
+##### ANDAAR-1 - 控制文档切换
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
-- Goal: 归档上一轮 Hub 健壮性 workflow 的控制文档，并建立本轮 Android File 模块计划。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1\plan.md`
+- Goal: 归档上一轮 `offer/upload v1` 计划，并建立本轮 AAR 构建闭环控制文档。
 - Files / Modules:
   - `plan.md`
-  - `docs/plan_archive/plan_archive_2026-04-02_android-hub-resilience-prev.md`
+  - `docs/plan_archive/plan_archive_2026-04-03_android-file-offer-upload-v1-prev.md`
+- Write Set:
+  - `plan.md`
+  - `docs/plan_archive/plan_archive_2026-04-03_android-file-offer-upload-v1-prev.md`
 - Acceptance:
-  - 旧计划已归档
-  - 新 `plan.md` 完整记录 stage 1 / 2 / 3.1
+  - 上一轮计划已归档
+  - 新计划完整记录 stage 1 / 2 / 3.1
 - Test Points:
   - 归档文件存在且可读
 - Rollback:
-  - 还原旧 `plan.md` 并删除本轮 archive
+  - 删除新 archive，恢复旧 `plan.md`
 
-##### ANDFILE-2 - File 协议桥接与解析
+##### ANDAAR-2 - Windows AAR 构建脚本
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
-- Goal: 为 Android File 页面提供明确的 file 专用桥接和纯逻辑解析层。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1\plan.md`
+- Goal: 让 Windows `build_aar.ps1` 与当前 Bash/CI 行为对齐，并显式处理失败。
 - Files / Modules:
-  - `hubmobile/file.go`
-  - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
-  - `app/src/main/java/com/myflowhub/android/FileProtocolSupport.kt`
+  - `scripts/build_aar.ps1`
+  - `docs/m0_smoke.md`（如需）
+- Write Set:
+  - `scripts/build_aar.ps1`
+  - `docs/m0_smoke.md`（如需）
 - Acceptance:
-  - `hubmobile` 可直接发起并等待 file list/read_text/mkdir
-  - `GoClientBridge` 暴露 file 专用方法
-  - code 判定、路径校验和 data 解析逻辑集中在 helper 中
+  - 能自动解析 `ANDROID_SDK_ROOT` / `ANDROID_HOME`
+  - 能探测已安装 NDK 并安装缺失的 `gomobile/gobind`
+  - 任一 native command 失败都会中断脚本
+  - 只有真实生成 AAR 才会打印成功
 - Test Points:
-  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
-  - `FileProtocolSupportTest.kt`
-  - 代码审阅 file 控制帧封装与校验路径
+  - `.\\scripts\\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar`
 - Rollback:
-  - 回退上述文件到当前主线版本
+  - 回退 PowerShell 脚本及相关文档改动
 
-##### ANDFILE-3 - File 页面与导航
+##### ANDAAR-3 - 本地验证
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
-- Goal: 提供 Android File v1 的正式 UI 入口。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-pull-v1\plan.md`
+- Goal: 锁定当前 Windows 机器上的 AAR 构建真实状态，并在环境允许时继续验证 APK。
 - Files / Modules:
-  - `app/src/main/java/com/myflowhub/android/ui/FileScreen.kt`
-  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
+  - `scripts/build_aar.ps1`
+  - `app/libs/myflowhub.aar`
+- Write Set:
+  - `app/libs/myflowhub.aar`（若成功生成）
 - Acceptance:
-  - 主导航新增 `File`
-  - 支持目标节点输入、目录刷新/进入/返回、文件预览、新建目录
-  - 基本错误提示和空状态可用
+  - 当前机器上的失败或成功状态可复现、可解释
+  - 若 AAR 成功生成，则 `assembleDebug` 通过
 - Test Points:
-  - 代码审阅 Compose 状态流转
-  - `.\gradlew.bat :app:assembleDebug`
+  - `.\\scripts\\build_aar.ps1 -Target android/arm64 -JavaPkg com.myflowhub.gomobile -OutFile app/libs/myflowhub.aar`
+  - `.\\gradlew.bat :app:assembleDebug`
 - Rollback:
-  - 回退 `FileScreen.kt` 与 `AppRoot.kt`
+  - 删除新生成的 `app/libs/myflowhub.aar` 并回退脚本改动
 
-##### ANDFILE-4 - 测试与验证
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
-- Goal: 为本轮 File v1 的关键解析和校验逻辑提供可重复验证。
-- Files / Modules:
-  - `app/src/test/java/com/myflowhub/android/FileProtocolSupportTest.kt`
-  - `plan.md`
-- Acceptance:
-  - 单测覆盖目录规范化、目录名校验、list/read_text 解析
-  - `hubmobile go test`、`testDebugUnitTest` 与 `assembleDebug` 通过
-- Test Points:
-  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
-  - `.\gradlew.bat testDebugUnitTest`
-  - `.\gradlew.bat :app:assembleDebug`
-  - `git diff --check`
-- Rollback:
-  - 回退测试文件与相关实现
-
-##### ANDFILE-5 - 自审与归档
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
-- Goal: 确保本轮 File v1 的实现、验证和归档可审计。
-- Files / Modules:
-  - `plan.md`
-  - `docs/change/2026-04-02_android-file-module.md`
-  - `docs/lessons/*.md`（conditional）
-  - `docs/lessons/README.md`（conditional）
-- Acceptance:
-  - 3.3 checklist 完整
-  - `docs/change` 记录背景、实现、验证、回滚和 lesson impact
-  - 若新增 lesson，同步更新 `docs/lessons/README.md`
-- Test Points:
-  - `git diff --check`
-  - `git status --short`
-- Rollback:
-  - 删除本轮 archive / lesson 并回退实现文件
-
-#### Dependencies
-- `hubmobile/client.go` 中现有 await client 能力
-- Android 登录态 `Prefs.ClientConfig`
-- `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\file.md`
-- 现有 Compose / Material3 页面结构
-
-#### Risks and Notes
-- 当前 File 页面仍依赖手工输入目标节点，体验上还不等于 Win 的节点树浏览。
-- 本轮需要新增 `hubmobile/file.go`，因此本地 Go/AAR 验证依赖当前 workspace 中 `MyFlowHub-Server` / `MyFlowHub-SDK` / `MyFlowHub-Proto` 的目录镜像。
-- 若后续范围扩展到 `pull/offer/tasks`，需要回到 3.1 重新扩充计划。
+#### Dependencies, Risks, and Notes
+- Dependencies:
+  - Android SDK / NDK
+  - `golang.org/x/mobile`
+  - `hubmobile/go.mod`
+- Risks:
+  - 当前机器缺少 NDK，可能导致本轮验证停留在失败路径
+  - 若 `hubmobile` 外部 replace 依赖漂移，AAR 构建可能暴露新的非本轮问题
+- Notes:
+  - 不使用子 Agent
+  - 若本轮需要新增复用性较强的排障经验，将在 Stage 4 同步写入 `docs/lessons`
 
 #### Parallelism Assessment
-- 本轮写集集中在同一 Android app 模块，`GoClientBridge`、helper、UI 和测试耦合较高，不适合并行派发。
-- 子Agent：不使用。
+- 不使用子 Agent。
+- 原因：
+  - 当前改动面很小，核心风险集中在同一条 Windows 构建链路上
+  - 计划、脚本、环境验证和归档需要同一上下文收敛
 
-#### Issue List
-- 无
+阻塞：否
+进入 3.2
 
-### Stage 3.2 - Implementation
-- `ANDFILE-2`
-  - `hubmobile/file.go` 新增 `FileList` / `FileReadText` / `FileCreateDir`，补齐 file 控制帧 `KindCtrl` 前缀和 `hubId -> data.target` 路由语义。
-  - `GoClientBridge.kt` 反射新增 file 专用方法。
-  - `FileProtocolSupport.kt` 统一承载路径规范化、目录名校验和 list/read_text/mkdir 解析。
-- `ANDFILE-3`
-  - `FileScreen.kt` 新增 Android File v1 页面，支持目标节点输入、目录进入/返回、文本预览和新建目录。
-  - `AppRoot.kt` 新增 `File` 导航入口。
-- `ANDFILE-4`
-  - `FileProtocolSupportTest.kt` 覆盖路径和解析纯逻辑。
-  - `app/build.gradle.kts` 为本地 JVM 单测增加 `org.json:json`。
-  - 本地执行 `hubmobile go test`、AAR 构建、`testDebugUnitTest`、`assembleDebug` 全部通过。
+### Stage 3.2 - Implementation Result
+#### ANDAAR-2
+- `scripts/build_aar.ps1`
+  - 新增 SDK/NDK 自动探测与标准 SDK 目录 fallback
+  - 新增按 `hubmobile/go.mod` 版本安装 `gomobile/gobind`
+  - 新增 native command 退出码检查，修复 PowerShell 下 `gomobile` 失败仍继续的问题
+  - 成功路径改为必须检查目标 AAR 文件真实存在
+- `docs/m0_smoke.md`
+  - 补充 Windows 本地 AAR 构建前置说明
+
+#### ANDAAR-3
+- 本机环境验证：
+  - 初次执行 `.\\scripts\\build_aar.ps1 ...`
+    - 明确失败为缺少 `ndk;26.1.10909125`
+  - 已在本机安装 Android command-line tools 与 `ndk;26.1.10909125`
+  - 再次执行 `.\\scripts\\build_aar.ps1 ...`
+    - 明确失败在 `gomobile bind`
+    - 暴露 `worktrees\\MyFlowHub-Server\\modules\\defaultset` 的 API 漂移，而不是伪装成功
+  - `ANDROID_HOME=C:\\Users\\HelloWorld\\AppData\\Local\\Android\\Sdk`
+  - `ANDROID_SDK_ROOT=C:\\Users\\HelloWorld\\AppData\\Local\\Android\\Sdk`
+  - `.\\gradlew.bat :app:assembleDebug`
+    - 通过
+- 探索性尝试：
+  - 试过临时去掉本地 replace 再执行 `gomobile bind`
+  - 当前会触发额外的 `go mod tidy failed: missing module declaration`
+  - 因行为尚不稳定，本轮未把该 fallback 固化进仓库脚本
 
 ### Stage 3.3 - Code Review
-- 需求覆盖：通过
-  - 已覆盖 File v1 的目录浏览、文本预览和 mkdir，未越界引入传输任务系统。
-- 架构合理性：通过
-  - 识别并修正了通用 `SendAndAwait` 不适用于 file 控制帧的问题，最终方案与 Win 现有 file await 语义保持一致。
-- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：通过
-  - 请求均按用户手势触发，无新增后台轮询；解析逻辑为常量级 JSON 处理。
-- 可读性与一致性：通过
-  - file 协议 helper、bridge 和 UI 职责分层清晰，命名与现有 Android 模块一致。
-- 可扩展性与配置化：通过
-  - `hubmobile/file.go` 与 `FileProtocolSupport.kt` 为后续 `pull/offer/tasks` 扩展保留了入口。
-- 稳定性与安全：通过
-  - 本地前置校验 `hubId` / `targetId` / 目录名；file 响应 code 和 op 均有显式判定。
-- 测试覆盖情况：通过
-  - `hubmobile go test`、`testDebugUnitTest`、AAR 构建和 `assembleDebug` 均通过。
-  - 残余风险：当前环境未做真机联调验证，目录浏览与文本预览仍缺少设备侧人工冒烟。
-- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）：通过
-  - 未使用子 Agent。
+- 需求覆盖：`通过`
+  - 已修复 Windows AAR 构建的假成功问题，并明确暴露当前真实阻塞
+- 架构合理性：`通过`
+  - 方案收敛在 `build_aar.ps1` 与文档，没有扩散到 app / hubmobile 运行时代码
+- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：`通过`
+  - 仅在缺工具时安装；目录探测和路径校验开销很小
+- 可读性与一致性：`通过`
+  - PowerShell helper 命名与现有 Bash 脚本职责对应，错误路径清晰
+- 可扩展性与配置化：`通过`
+  - 后续可继续扩显式 SDK/NDK 参数，不影响当前接口
+- 稳定性与安全：`通过`
+  - 关键 native command 现在都会显式失败，不再静默继续
+- 测试覆盖情况：`通过（带外部阻塞注记）`
+  - 已验证缺 NDK 和外部依赖漂移两段失败路径
+  - `assembleDebug` 通过
+  - AAR 最终成功产出仍受外部 `MyFlowHub-Server` 漂移阻塞
+- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）：`通过`
+  - 本轮未使用子 Agent
 
 ### Stage 4 - Change Archive
-- 使用 `$m-docs` 完成变更归档和 lessons 影响校验。
-- `docs/change/2026-04-02_android-file-module.md`：已创建
-- `docs/lessons/android-hubmobile-local-replace.md`：已更新
+- 使用 `$m-docs` 完成变更归档与 lessons 检查
+- Change archive:
+  - `docs/change/2026-04-03_android-windows-aar-build-closure-v1.md`
+- Lessons:
+  - `docs/lessons/android-build-aar-windows.md`
+  - `docs/lessons/README.md`
 - Requirements impact: `none`
 - Specs impact: `none`
 - Lessons impact: `updated`

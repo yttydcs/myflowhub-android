@@ -53,6 +53,28 @@ class GoClientBridge {
         String::class.java,
         String::class.java,
     )
+    private val filePullMethod = GoReflect.method(
+        cls,
+        "FilePull",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val fileOfferMethod = GoReflect.method(
+        cls,
+        "FileOffer",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
 
     private val varStoreListMethod = GoReflect.method(
         cls,
@@ -251,6 +273,14 @@ class GoClientBridge {
 
     fun fileCreateDir(sourceId: String, hubId: String, targetId: String, dir: String, name: String): String {
         return requireString(fileCreateDirMethod, "FileCreateDir", sourceId, hubId, targetId, dir, name)
+    }
+
+    fun filePull(sourceId: String, hubId: String, targetId: String, dir: String, name: String, wantHash: String = "true", localBaseDir: String): String {
+        return requireString(filePullMethod, "FilePull", sourceId, hubId, targetId, dir, name, wantHash, localBaseDir)
+    }
+
+    fun fileOffer(sourceId: String, hubId: String, targetId: String, dir: String, name: String, wantHash: String = "true", localBaseDir: String): String {
+        return requireString(fileOfferMethod, "FileOffer", sourceId, hubId, targetId, dir, name, wantHash, localBaseDir)
     }
 
     fun varStoreList(sourceId: String, targetId: String, owner: String): String {

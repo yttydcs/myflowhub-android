@@ -16,6 +16,10 @@
 - 新增或更新 lesson 后，同步更新本索引。
 
 ## Current Lessons
+- [android-build-aar-windows.md](android-build-aar-windows.md)
+  - 症状：Windows 下 `build_aar.ps1` 打印成功但未生成 AAR，或构建被 NDK / 本地 replace 链阻塞
+- [android-file-offer-staging.md](android-file-offer-staging.md)
+  - 症状：Android 端 `offer/upload` 控制响应成功，但没有真正开始发送 DATA
 - [android-hub-service-restart.md](android-hub-service-restart.md)
   - 症状：Android Hub 启动后切到后台，服务被系统重建后看起来“不再工作”或无法恢复
 - [android-hubmobile-local-replace.md](android-hubmobile-local-replace.md)
