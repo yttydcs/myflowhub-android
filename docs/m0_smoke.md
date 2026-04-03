@@ -27,6 +27,8 @@ cd d:\project\MyFlowHub3\repo\MyFlowHub-Android
 
 成功后应存在：`app/libs/myflowhub.aar`。
 
+> 说明：`build_aar.ps1` 会优先读取 `ANDROID_HOME` / `ANDROID_SDK_ROOT`，未设置时会尝试 `%LOCALAPPDATA%\Android\Sdk`。若缺少可用 NDK，脚本会直接失败并提示安装 `ndk;26.1.10909125`，不再把失败伪装成成功。
+
 > 注意：必须先构建 AAR，再构建 APK。若你先构建了 APK，需要重新 `assembleDebug` 才能把 AAR 打进 APK。
 
 ## 2. 构建 APK

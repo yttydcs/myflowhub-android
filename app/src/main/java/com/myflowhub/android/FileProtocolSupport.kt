@@ -1,5 +1,6 @@
 package com.myflowhub.android
 
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -23,7 +24,30 @@ data class FileTextResult(
     val message: String,
 )
 
+data class FilePullStartResult(
+    val dir: String,
+    val name: String,
+    val size: Long,
+    val sessionId: String,
+    val localBaseDir: String,
+    val localPath: String,
+    val message: String,
+)
+
+data class FileOfferStartResult(
+    val dir: String,
+    val name: String,
+    val size: Long,
+    val sessionId: String,
+    val resumeFrom: Long,
+    val localBaseDir: String,
+    val localPath: String,
+    val message: String,
+)
+
 object FileProtocolSupport {
+    private const val OP_OFFER = "offer"
+    private const val OP_PULL = "pull"
     private const val OP_MKDIR = "mkdir"
     private val nameComparator = compareBy<String>({ it.lowercase() }, { it })
 
@@ -70,6 +94,24 @@ object FileProtocolSupport {
         return if (normalizedDir.isBlank()) "/$cleanName" else "/$normalizedDir/$cleanName"
     }
 
+    fun resolveDownloadRoot(filesDir: File, externalDownloadsDir: File?): String {
+        val parent = externalDownloadsDir ?: File(filesDir, "downloads")
+        return File(parent, "myflowhub").absolutePath
+    }
+
+    fun resolveUploadRoot(filesDir: File, externalFilesDir: File?): String {
+        val parent = externalFilesDir ?: filesDir
+        return File(parent, "myflowhub/upload-staging").absolutePath
+    }
+
+    fun expectedLocalPath(localBaseDir: String, dir: String, name: String): String {
+        return expectedTransferPath(localBaseDir, dir, name, "Local download root is required.")
+    }
+
+    fun expectedUploadStagePath(localBaseDir: String, dir: String, name: String): String {
+        return expectedTransferPath(localBaseDir, dir, name, "Local upload staging root is required.")
+    }
+
     fun requirePositiveNodeId(raw: String, label: String = "Node ID"): Long {
         val value = raw.trim().toLongOrNull() ?: throw IllegalStateException("$label must be a positive integer.")
         if (value <= 0) {
@@ -91,6 +133,8 @@ object FileProtocolSupport {
         }
         return name
     }
+
+    fun requireFileName(raw: String): String = requireTransferName(raw)
 
     fun parseList(raw: String): FileListResult {
         val obj = requireSuccess(JSONObject(raw), "File list")
@@ -128,6 +172,57 @@ object FileProtocolSupport {
         return obj.optString("msg", "").trim()
     }
 
+    fun parsePullStart(raw: String): FilePullStartResult {
+        val obj = requireSuccess(JSONObject(raw), "File pull")
+        val actualOp = obj.optString("op", "").trim()
+        if (actualOp.isNotBlank() && actualOp != OP_PULL) {
+            throw IllegalStateException("Unexpected read op: $actualOp")
+        }
+        val dir = normalizeDir(obj.optString("dir", ""))
+        val name = requireTransferName(obj.optString("name", ""))
+        val localBaseDir = obj.optString("local_base_dir", "").trim().ifBlank {
+            throw IllegalStateException("Local download root is missing.")
+        }
+        val localPath = obj.optString("local_path", "").trim().ifBlank {
+            expectedLocalPath(localBaseDir, dir, name)
+        }
+        return FilePullStartResult(
+            dir = dir,
+            name = name,
+            size = obj.optLong("size", 0),
+            sessionId = obj.optString("session_id", "").trim(),
+            localBaseDir = localBaseDir,
+            localPath = localPath,
+            message = obj.optString("msg", "").trim(),
+        )
+    }
+
+    fun parseOfferStart(raw: String): FileOfferStartResult {
+        val obj = requireSuccess(JSONObject(raw), "File offer")
+        val actualOp = obj.optString("op", "").trim()
+        if (actualOp.isNotBlank() && actualOp != OP_OFFER) {
+            throw IllegalStateException("Unexpected write op: $actualOp")
+        }
+        val dir = normalizeDir(obj.optString("dir", ""))
+        val name = requireTransferName(obj.optString("name", ""))
+        val localBaseDir = obj.optString("local_base_dir", "").trim().ifBlank {
+            throw IllegalStateException("Local upload staging root is missing.")
+        }
+        val localPath = obj.optString("local_path", "").trim().ifBlank {
+            expectedUploadStagePath(localBaseDir, dir, name)
+        }
+        return FileOfferStartResult(
+            dir = dir,
+            name = name,
+            size = obj.optLong("size", 0),
+            sessionId = obj.optString("session_id", "").trim(),
+            resumeFrom = obj.optLong("resume_from", 0),
+            localBaseDir = localBaseDir,
+            localPath = localPath,
+            message = obj.optString("msg", "").trim(),
+        )
+    }
+
     private fun requireSuccess(obj: JSONObject, label: String): JSONObject {
         val code = obj.optInt("code", 0)
         if (code == 1) {
@@ -135,6 +230,49 @@ object FileProtocolSupport {
         }
         val message = obj.optString("msg", "").trim().ifBlank { "$label failed (code=$code)" }
         throw IllegalStateException(message)
+    }
+
+    private fun expectedTransferPath(localBaseDir: String, dir: String, name: String, emptyBaseMessage: String): String {
+        val base = localBaseDir.trim().ifBlank {
+            throw IllegalStateException(emptyBaseMessage)
+        }
+        val cleanName = requireTransferName(name)
+        val cleanDir = requireTransferDir(dir)
+        val dirFile = if (cleanDir.isBlank()) {
+            File(base)
+        } else {
+            File(base, cleanDir.replace('/', File.separatorChar))
+        }
+        return File(dirFile, cleanName).absolutePath
+    }
+
+    private fun requireTransferDir(raw: String): String {
+        val normalized = raw.trim().replace('\\', '/')
+        if (normalized.isBlank() || normalized == "/" || normalized == ".") {
+            return ""
+        }
+        if (normalized.startsWith("/") || Regex("^[A-Za-z]:").containsMatchIn(normalized)) {
+            throw IllegalStateException("Invalid file directory.")
+        }
+        val parts = normalized
+            .split('/')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != "." }
+        if (parts.any { it == ".." }) {
+            throw IllegalStateException("Invalid file directory.")
+        }
+        return parts.joinToString("/")
+    }
+
+    private fun requireTransferName(raw: String): String {
+        val cleanName = raw.trim()
+        if (cleanName.isBlank()) {
+            throw IllegalStateException("File name is required.")
+        }
+        if (cleanName == "." || cleanName == ".." || cleanName.any { it == '/' || it == '\\' || it == '\u0000' }) {
+            throw IllegalStateException("Invalid file name.")
+        }
+        return cleanName
     }
 
     private fun collectNames(array: JSONArray?): List<String> {
