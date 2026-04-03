@@ -1,176 +1,197 @@
-# Plan - Android：Hub 后台恢复与状态连续性
+# Plan - Android：File 模块 v1
 
 ## Workflow Information
 - Repo: `MyFlowHub-Android`
-- Branch: `fix/android-hub-resilience`
-- Base: `origin/main@f974fdc`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
+- Branch: `feat/android-file-module`
+- Base: `origin/main@44b0683`
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
 - Current Stage: `4`
 
 ## Stage Records
 
 ### Initialization
-- guide.md: `D:\project\MyFlowHub3\guide.md`
+- guide.md: `not found`
 - 控制面仓：`D:\project\MyFlowHub3\repo\MyFlowHub-Android`
-- 主执行仓：`D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- 当前 worktree 从 `origin/main@f974fdc` 建立
+- 主执行仓：`D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- 当前 worktree 从 `origin/main@44b0683` 建立
 
 ### Stage 1 - Requirements Analysis
 #### 目标
-- 提升 Android Hub 的基本健壮性，解决服务 / 进程在后台被系统重建后无法自动恢复的问题，并补齐状态连续性，让正在运行的父链自动重连结果在 Android 宿主侧可持续感知。
+- 为 Android 端补齐一个可正式使用的 File 模块入口，至少让用户不再依赖通用协议控制台，就能完成文件目录浏览、文本预览和目录创建。
 
 #### 范围
 - 必须
-  - 持久化 Android Hub 的 `desiredRunning` 与最近一次启动配置快照。
-  - `HubService` 在 `intent == null` 重建时能自动恢复最近一次运行中的 Hub。
-  - 后台周期性刷新服务状态与前台通知。
-  - Hub 页面周期性刷新状态，而不是只在 bind / start / stop 时取一次。
-  - 补充单元测试覆盖恢复决策与状态文案逻辑。
+  - 新增独立 `File` 页面并接入主导航。
+  - 基于已存在的 `sendAndAwait` 能力，跑通 `file` 子协议的 `read(op=list)`、`read(op=read_text)`、`write(op=mkdir)`。
+  - 支持目标节点输入、目录进入/返回、刷新列表、文本预览、新建目录。
+  - 对登录缺失、目标节点非法、响应失败、返回格式异常给出明确错误。
+  - 补充纯逻辑单元测试，覆盖路径规范化、目录名校验、响应解析。
 - 可选
-  - 若本轮形成稳定排障规则，补充 lesson。
+  - 适度保留高级调试入口，继续保留 `Protocols` 通用控制台。
 - 不做
-  - 不改 Go `hubruntime` 的父链自动重连算法与 `parent.reconnect_sec`。
-  - 不引入 `WorkManager`、Boot Receiver、force-stop 恢复或 OEM 保活适配。
-  - 不新增 RFCOMM 配置字段。
+  - 不做 Win 端已有的上传、下载、offer、task 列表、自动接收、任务重试/取消。
+  - 不做浏览节点持久化、树形节点选择器、后台事件推送。
+  - 不做 File 任务事件流和后台传输状态管理。
 
 #### 使用场景
-- 用户点击 `Start` 后退到后台，系统回收 app 进程并重建前台服务，Hub 应按最近一次启动配置恢复。
-- Hub 运行中父链短暂断开，由 Go runtime 自动重连；Android 通知和页面应在合理延迟内反映连接状态变化。
-- 用户显式 `Stop` 后，不应因为后续服务重建而再次自动恢复。
+- 用户完成登录后，想直接浏览某个节点的 `file` 目录，而不是手工拼 JSON 发 `SubProto=5`。
+- 用户需要在 Android 端快速预览远端文本文件，例如配置片段、日志片段、说明文件。
+- 用户需要在目标节点当前目录下创建一个子目录，为后续文件管理做准备。
 
 #### 功能需求
-- `ACTION_START` 必须记录最近一次启动配置快照，并持久化 `desiredRunning=true`。
-- `ACTION_STOP` 必须清除 `desiredRunning`。
-- `HubService` 在 `intent == null` 场景下，只有在 `desiredRunning=true` 且存在配置快照时才允许恢复。
-- 恢复逻辑必须基于“最近一次启动快照”，而不是 UI 当前表单草稿。
-- 周期性状态刷新必须基于现有 `bridge.status()`，不在 Android 端重复实现父链重连。
-- 启动失败时不得留下会持续自动恢复的错误状态。
+- `File` 页面必须要求已登录的 `source node id`，未登录时不允许发起 file 请求。
+- 控制请求必须以当前登录态的 `hubId` 作为 header `TargetID`，实际浏览目标节点放在 file request 的 `data.target` 中。
+- 页面上的目标节点默认取当前登录态中的 `hubId`，同时允许用户手工修改。
+- 目录列表请求必须走 `action=read`、`op=list`，默认非递归。
+- 文本预览请求必须走 `action=read`、`op=read_text`，默认最大预览 64KB。
+- 新建目录请求必须走 `action=write`、`op=mkdir`，并对目录名做本地前置校验。
+- 点击目录项后必须进入子目录并自动刷新；点击文件项后必须打开预览。
+- 返回上级目录、手动刷新、预览关闭后重新打开等基本交互必须正常工作。
 
 #### 非功能需求
-- 改动面保持最小，优先修复 Android 宿主生命周期问题。
-- 轮询频率保持低频，避免明显额外耗电或多余 I/O。
-- 变更要可追溯、可回滚。
+- 改动面保持最小，但必须保证 file 控制帧协议语义正确。
+- 允许新增 `hubmobile` file 导出 API；但不修改 Server / Proto 规格本身。
+- 解析与校验逻辑应提取为纯 Kotlin helper，便于本地 JUnit 验证。
 
 #### 输入输出
 - 输入
-  - 用户需求：Android Hub 缺少自动重连观感，后台似乎不会自动工作
-  - 现状：`HubService` 返回 `START_STICKY`，但 `intent == null` 时没有恢复逻辑
-  - 相关文件：
-    - `app/src/main/java/com/myflowhub/android/HubService.kt`
-    - `app/src/main/java/com/myflowhub/android/Prefs.kt`
-    - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
-    - `hubmobile/hubmobile.go`
-    - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md`
+  - 用户需求：先做 Android `File` 模块。
+  - Android 现状：
+    - 仅在 `ProtocolsScreen.kt` 中通过通用控制台可手动调用 `SubProto=5`
+    - 没有正式的 File 页面和 file 专用桥接方法
+  - 相关规格：
+    - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\file.md`
+  - 相关基础代码：
+    - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
+    - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
+    - `app/src/main/java/com/myflowhub/android/ui/ProtocolsScreen.kt`
+    - `hubmobile/client.go`
 - 输出
-  - 更新后的 Android 服务恢复 / 状态刷新实现
-  - 更新后的单元测试
-  - `docs/change/2026-04-01_android-hub-resilience.md`
-  - `docs/lessons/*.md`（conditional）
+  - 新的 Android `File` 页面
+  - `hubmobile/file.go` 与 `GoClientBridge` 中的 file 专用封装
+  - file 响应解析 / 校验 helper 与单元测试
+  - `docs/change/2026-04-02_android-file-module.md`
 
 #### 边界异常
-- 服务重建但没有运行快照或 `desiredRunning=false` 时，不允许误恢复。
-- 用户启动后又编辑表单但未重新点击 `Start`，恢复时必须以最近一次真实启动配置为准。
-- 启动失败或旧 AAR / 权限问题导致运行态未建立时，不应留下错误恢复循环。
-- 本轮不承诺覆盖设备重启、应用 force-stop、厂商后台清理等场景。
+- 未登录或 `source node id` 为空时，必须阻止请求并提示需要先登录。
+- `target node id` 非正整数时，必须阻止请求。
+- 目录名为空、为 `.` / `..`、包含 `/` 或 `\` 时，必须阻止 `mkdir`。
+- 若服务端返回 `code != 1`，必须展示服务端消息或包含 code 的默认错误。
+- 若响应 JSON 缺失 `data` 或结构异常，必须显式报错，不得静默吞掉。
+- 本轮不承诺二进制文件预览，不承诺超大文本流式加载。
 
 #### 验收标准
-- `HubService` 在空 intent 重建时能按持久化快照自动恢复最近一次运行中的 Hub。
-- 用户显式 `Stop` 后，服务不会在后续重建中自动恢复。
-- 通知和 Hub 页面能在轮询周期内反映 `running` / `parentConnected` / `lastError` 的变化。
-- 本地单元测试通过，且具备明确回滚路径。
+- 主导航出现 `File` 入口，进入后可操作。
+- 在已登录状态下，输入目标节点后可以列出根目录和子目录内容。
+- 点击文本文件可看到预览内容，并能显示大小 / 截断状态。
+- 输入合法目录名后可以成功创建目录，并在刷新后看到结果。
+- `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1` 通过。
+- `.\gradlew.bat testDebugUnitTest` 通过。
+- `.\gradlew.bat :app:assembleDebug` 通过。
 
 #### 风险
-- Android 平台上的 force-stop、设备重启、OEM 杀后台仍可能导致服务无法恢复，本轮不处理。
-- 若把“当前表单”误当作“最近一次运行配置”，会造成恢复语义漂移；因此必须单独持久化启动快照。
+- Android 端仍缺少 Win 的任务系统，因此本轮只覆盖浏览类操作，不覆盖传输闭环。
+- 目标节点选择暂时是手工输入，远端节点发现体验仍弱于 Win。
+- 由于 Android worktree 下 `hubmobile/go.mod` 的本地 `replace` 默认指向控制面 `repo/` 目录，本地 Go/AAR 验证可能需要额外准备依赖目录镜像。
 
 #### Issue List
 - 无
 
 ### Stage 2 - Architecture Design
 #### 总体方案
-- 采用“修复 Android 宿主生命周期，而不重复实现 Go 重连”的方案：
-  - `Prefs` 额外持久化 `desiredRunning` 与最近一次启动配置快照。
-  - `HubService` 统一负责启动、停止、空 intent 恢复、状态轮询与通知更新。
-  - `HubScreen` 负责发起 Start / Stop，并在前台低频轮询 bound service 的状态用于展示。
+- 采用“在 `hubmobile` 新增 file 专用导出 API，再由 Android UI 产品化”的方案：
+  - `hubmobile/file.go` 负责按 file 子协议要求补 `KindCtrl` 前缀、写入 `data.target`，并等待 `read_resp/write_resp`。
+  - `GoClientBridge` 反射新增 `FileList` / `FileReadText` / `FileCreateDir` 方法。
+  - 新建 `FileProtocolSupport.kt`，负责目录规范化、目录名校验和 list/read_text/mkdir 结果解析。
+  - 新建 `FileScreen.kt`，承载浏览、预览和建目录交互。
+  - `AppRoot.kt` 增加 `File` 导航入口。
 - 选型理由：
-  - Go runtime 已具备父链自动重连，本轮问题主要在 Android 宿主没有把运行态跨服务重建延续下来。
-  - 将“最近一次运行配置”与“表单草稿配置”分离，是最小且语义正确的恢复方式。
+  - file 子协议控制帧要求 `payload[0]=KindCtrl`，现有通用 `SendAndAwait` 只编码 JSON message，不满足 file await 语义。
+  - Win 端现有可用实现也是 file 专用 await 路径：header `TargetID=hubId`，请求体 `data.target=目标节点`。
+  - 因此要保证 Android File v1 真正可用，必须在 `hubmobile` 提供 file 专用方法，而不是只在 Kotlin 侧拼 JSON。
 
 #### 备选对比
-- 方案 A：只改成 `START_REDELIVER_INTENT`
-  - 优点：实现简单
-  - 缺点：仍不显式表达“最近一次运行配置”和“显式 Stop 后不恢复”的边界
-- 方案 B：在 Android 侧自行实现父链重连
-  - 优点：可更主动控制重连表现
-  - 缺点：与 Go runtime 重复，容易形成双状态机
-- 方案 C：引入 `WorkManager` / Boot Receiver / Alarm 自愈
-  - 优点：覆盖更多后台场景
-  - 缺点：超出本轮最小修复范围，复杂度显著上升
-- 采用方案：持久化运行快照 + 服务恢复 + 状态轮询
+- 方案 A：只在 Kotlin 侧包装 `sendAndAwait`
+  - 优点：Android 代码改动更小
+  - 缺点：无法补齐 file 控制帧 `KindCtrl` 前缀，也无法正确复用 Win 现有 file 路由语义
+- 方案 B：继续只保留 `Protocols` 通用控制台
+  - 优点：零新增接口
+  - 缺点：不可用性问题依旧，不能视为正式 File 模块
+- 采用方案：`hubmobile` file 导出 API + `GoClientBridge` + 独立 UI
 
 #### 模块职责
-- `Prefs.kt`
-  - 持久化最近一次启动快照与 `desiredRunning`
-- `HubService.kt`
-  - 处理 `ACTION_START` / `ACTION_STOP`
-  - 处理 `intent == null` 的恢复
-  - 维护后台状态轮询与通知更新
-- `HubScreen.kt`
-  - 保持现有启动 / 停止入口
-  - 增加前台状态轮询
-- `HubServiceSupport.kt`（如需新增）
-  - 承载可单测的恢复与通知纯逻辑
+- `hubmobile/file.go`
+  - 负责 file `read/write` 的请求封装
+  - 负责 `KindCtrl` 前缀、`data.target`、`hubID` 路由和同步等待响应
+- `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
+  - 反射 `hubmobile` 新导出的 file 方法
+- `app/src/main/java/com/myflowhub/android/FileProtocolSupport.kt`
+  - 规范化目录路径
+  - 校验目录名
+  - 解析 `list` / `read_text` / `mkdir` data 响应
+  - 提供可单测的纯逻辑
+- `app/src/main/java/com/myflowhub/android/ui/FileScreen.kt`
+  - 管理页面状态
+  - 发起 list/read_text/mkdir 请求
+  - 处理目录导航、预览弹窗、新建目录弹窗和错误提示
+- `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
+  - 将 `File` 页面接入现有导航体系
+- `app/src/test/java/com/myflowhub/android/FileProtocolSupportTest.kt`
+  - 覆盖 helper 纯逻辑和关键错误路径
 
 #### 数据 / 调用流
-1. 用户在 Hub 页面点击 `Start`。
-2. `HubScreen` 发送 `ACTION_START` 给 `HubService`。
-3. `HubService` 归一化配置并持久化“运行快照 + desiredRunning=true”。
-4. `HubService` 调用 `bridge.start(cfg)` 启动 Go runtime。
-5. `HubService` 启动周期性状态轮询，用 `bridge.status()` 刷新 `state` 与前台通知。
-6. 若服务被系统以 `intent == null` 重建，`HubService` 从 `Prefs` 读取运行快照；只有在 `desiredRunning=true` 时才自动恢复。
-7. 用户点击 `Stop` 后，`HubService` 清除 `desiredRunning`、停止 runtime、移除通知并停止自身。
-8. `HubScreen` 在 bound service 存在时低频轮询 `getState()`，同步展示最新状态。
+1. 用户进入 `File` 页面。
+2. 页面读取登录态中的 `cfg.nodeId` 作为 `source id`，读取 `cfg.hubId` 作为 header 路由用 `hubId`，并将浏览目标节点默认设为 `cfg.hubId`。
+3. 用户点击 `Load` / `Refresh` 时，`FileScreen` 调用 `go.fileList(sourceId, hubId, targetId, dir)`。
+4. `GoClientBridge.fileList(...)` 反射调用 gomobile 导出的 `FileList(...)`。
+5. `hubmobile/file.go` 构造 `ReadReq{Op=list, Target=targetId, Dir=...}`，编码 `KindCtrl + JSON(message)`，并通过 `hubID` 路由等待 `read_resp`。
+6. `FileProtocolSupport.parseList(...)` 解析 `dirs/files` 为 UI entry 列表。
+7. 用户点击目录项时更新 `currentDir` 并重复 list；点击文件项时调用 `go.fileReadText(...)`。
+8. 用户创建目录时，`FileScreen` 先用 `FileProtocolSupport.requireFolderName(...)` 校验，再调用 `go.fileCreateDir(sourceId, hubId, targetId, ...)`，`hubmobile/file.go` 发送 `write(op=mkdir)` 并等待 `write_resp`，成功后刷新当前目录。
 
 #### 接口草案
-- `Prefs.saveHubRunSnapshot(context, cfg)`
-- `Prefs.loadHubRunSnapshot(context): HubConfig?`
-- `Prefs.setHubDesiredRunning(context, desired: Boolean)`
-- `Prefs.isHubDesiredRunning(context): Boolean`
-- 纯逻辑 helper：
-  - 恢复配置决策
-  - 通知文本渲染
+- `hubmobile.FileList(sourceID, hubID, targetID, dir string) (string, error)`
+- `hubmobile.FileReadText(sourceID, hubID, targetID, dir, name, maxBytes string) (string, error)`
+- `hubmobile.FileCreateDir(sourceID, hubID, targetID, dir, name string) (string, error)`
+- `GoClientBridge.fileList(sourceId: String, hubId: String, targetId: String, dir: String): String`
+- `GoClientBridge.fileReadText(sourceId: String, hubId: String, targetId: String, dir: String, name: String, maxBytes: String = "65536"): String`
+- `GoClientBridge.fileCreateDir(sourceId: String, hubId: String, targetId: String, dir: String, name: String): String`
+- `FileProtocolSupport.normalizeDir(dir: String): String`
+- `FileProtocolSupport.requirePositiveNodeId(raw: String): Long`
+- `FileProtocolSupport.requireFolderName(raw: String): String`
+- `FileProtocolSupport.parseList(raw: String): FileListResult`
+- `FileProtocolSupport.parseReadText(raw: String): FileTextResult`
 
 #### 错误与安全
-- 恢复前必须检查运行快照是否存在，缺失时直接跳过恢复。
-- 启动失败时清除 `desiredRunning`，避免服务重建后反复进入无意义恢复。
-- 状态轮询失败时要保留可诊断错误，不得静默吞掉。
+- 所有请求前必须校验 `source id`、`hub id`、`target id` 和目录名，避免无效请求直接打到网络层。
+- `hubmobile` 必须显式补 `KindCtrl` 前缀并等待正确的 `read_resp/write_resp`。
+- `hubmobile` 或 Kotlin 侧在响应 JSON 结构异常时，立即抛出明确错误。
+- 目录名禁止 `.`、`..` 和路径分隔符，减少路径逃逸类误用。
+- 文本预览严格限制最大字节数，避免一次性把大文件内容拉到 UI。
 
 #### 性能与测试策略
-- 服务与 UI 都采用秒级低频轮询，避免过高后台开销。
-- 通过提取纯逻辑 helper，让关键恢复 / 展示规则可用本地 JUnit 覆盖。
+- 列表与预览均按用户手势触发，不增加后台轮询。
+- 目录列表使用普通 `LazyColumn` 渲染即可，当前范围内无需引入复杂缓存。
+- 通过纯 Kotlin helper 提取解析 / 校验逻辑，使用本地 JUnit 覆盖核心规则。
+- `hubmobile` 通过本地 `go test` 覆盖编译与依赖回归。
 - 验证方式：
+  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
   - `.\gradlew.bat testDebugUnitTest`
-  - 审阅 `HubService` 在空 intent、显式 Stop、启动失败场景下的状态机
+  - `.\gradlew.bat :app:assembleDebug`
 
 #### 可扩展性设计点
-- 后续若需要开机恢复或更强保活，可复用同一套运行快照与恢复 helper。
-- 若未来需要暴露 `parent.reconnect_sec`，可在不改恢复骨架的情况下扩展到 `HubConfig` / `Prefs`。
+- `hubmobile/file.go` 后续可继续扩展 `pull/offer/tasks`，不影响当前 UI 层接口。
+- `FileProtocolSupport` 后续可继续增加 `offer/pull` DTO 解析，而不必把 JSON 解析散落在各页面。
+- 当前 `FileScreen` 状态模型可后续替换为 saved browser nodes 或节点树选择器，而不影响 file 协议入口。
 
 #### Issue List
 - 无
 
 ### Stage 3.1 - Planning
 #### Project Goal and Current State
-- 当前 Android Hub 的后台问题主要不在 Go runtime，而在 Android 服务生命周期：
-  - `HubService.onStartCommand()` 返回 `START_STICKY`
-  - `intent == null` 时直接 `no-op`
-  - 结果是系统重建服务后不会恢复最近一次正在运行的 Hub
-- 同时：
-  - UI 只在 bind / start / stop 时短暂轮询状态
-  - 前台通知只显示一次性静态文本，无法持续反映连接状态
-- Server 侧 `hubruntime` 已有父链自动重连：
-  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md`
-  - 本轮不在 Android 端重复实现
+- 当前 Android 端虽然已具备 `file` 协议的底层发送能力，但只有 `ProtocolsScreen.kt` 中的通用控制台可手工调用 `SubProto=5`。
+- 与 Win 相比，Android 缺少正式的 File 页面、file 专用桥接封装和最小可用的浏览交互。
+- 本轮目标是补齐 File v1，而不是一次性追平 Win 的传输任务体系。
 
 #### Docs Governance Routing Decision
 - 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
@@ -178,122 +199,107 @@
 - Specs impact: `none`
 - Related requirements: `none`
 - Related specs:
-  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md`
-- Related lessons: `none`（结束时再决定是否新增）
+  - `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\file.md`
+- Related lessons: `none`
 - Related changes:
-  - `docs/change/2026-02-25_android-hub-m0.md`
-  - `docs/change/2026-02-27_android-fgs-type-gomobile-reflect.md`
+  - `docs/change/2026-02-27_android-hub-ui-v1.md`
   - `docs/change/2026-03-31_android-rfcomm-basic-usability.md`
-  - `docs/change/2026-03-31_android-rfcomm-listener-config.md`
+  - `docs/change/2026-04-01_android-hub-resilience.md`
 - 文档路由：
   - 当前 workflow 控制文档位于 worktree 根 `plan.md`
-  - 旧 `plan.md` 已归档到 `docs/plan_archive/plan_archive_2026-04-01_android-release-checkout-deps-prev.md`
-  - 完成结果归档到 `docs/change/2026-04-01_android-hub-resilience.md`
-  - 若沉淀出稳定排障规则，再更新 `docs/lessons`
+  - 上一轮控制文档已归档到 `docs/plan_archive/plan_archive_2026-04-02_android-hub-resilience-prev.md`
+  - 完成结果归档到 `docs/change/2026-04-02_android-file-module.md`
+  - 若本轮形成稳定排障规则，再更新 `docs/lessons`
 
 #### Executable Task List
-- [x] `ANDHUBRES-1`：归档旧控制文档并建立本轮 `plan.md`
-- [x] `ANDHUBRES-2`：持久化运行快照与 `desiredRunning`，补齐空 intent 恢复
-- [x] `ANDHUBRES-3`：补齐服务侧状态轮询与通知刷新
-- [x] `ANDHUBRES-4`：补齐 Hub 页面状态轮询与展示连续性
-- [x] `ANDHUBRES-5`：补充单元测试并完成本地验证
-- [x] `ANDHUBRES-6`：完成 3.3 自审与 4 阶段归档
+- [x] `ANDFILE-1`：归档旧控制文档并建立本轮 `plan.md`
+- [x] `ANDFILE-2`：新增 `hubmobile` file 导出 API、Android helper 与 `GoClientBridge` 封装
+- [x] `ANDFILE-3`：新增 `FileScreen` 并接入 `AppRoot` 导航
+- [x] `ANDFILE-4`：补充 `FileProtocolSupportTest` 并完成本地验证
+- [x] `ANDFILE-5`：完成 3.3 自审与 4 阶段归档
 
 #### Task Details
-##### ANDHUBRES-1 - 控制文档切换
+##### ANDFILE-1 - 控制文档切换
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
-- Goal: 归档遗留的 release workflow 计划，并建立本轮 Android 健壮性修复的控制文档。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
+- Goal: 归档上一轮 Hub 健壮性 workflow 的控制文档，并建立本轮 Android File 模块计划。
 - Files / Modules:
   - `plan.md`
-  - `docs/plan_archive/plan_archive_2026-04-01_android-release-checkout-deps-prev.md`
+  - `docs/plan_archive/plan_archive_2026-04-02_android-hub-resilience-prev.md`
 - Acceptance:
   - 旧计划已归档
   - 新 `plan.md` 完整记录 stage 1 / 2 / 3.1
 - Test Points:
   - 归档文件存在且可读
 - Rollback:
-  - 还原 `plan.md` 并删除本轮新增 archive
+  - 还原旧 `plan.md` 并删除本轮 archive
 
-##### ANDHUBRES-2 - 运行快照与恢复
+##### ANDFILE-2 - File 协议桥接与解析
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
-- Goal: 为服务恢复提供明确的持久化运行语义，而不是依赖 UI 当前表单状态。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
+- Goal: 为 Android File 页面提供明确的 file 专用桥接和纯逻辑解析层。
 - Files / Modules:
-  - `app/src/main/java/com/myflowhub/android/Prefs.kt`
-  - `app/src/main/java/com/myflowhub/android/HubService.kt`
-  - `app/src/main/java/com/myflowhub/android/HubServiceSupport.kt`（conditional）
+  - `hubmobile/file.go`
+  - `app/src/main/java/com/myflowhub/android/GoClientBridge.kt`
+  - `app/src/main/java/com/myflowhub/android/FileProtocolSupport.kt`
 - Acceptance:
-  - `ACTION_START` 持久化最近一次启动快照与 `desiredRunning=true`
-  - `ACTION_STOP` 清除 `desiredRunning`
-  - `intent == null` 时按快照恢复，且只在 `desiredRunning=true` 时恢复
-  - 启动失败不会留下错误的自动恢复状态
+  - `hubmobile` 可直接发起并等待 file list/read_text/mkdir
+  - `GoClientBridge` 暴露 file 专用方法
+  - code 判定、路径校验和 data 解析逻辑集中在 helper 中
 - Test Points:
-  - 纯逻辑单测覆盖恢复决策
-  - 代码审阅恢复路径
+  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
+  - `FileProtocolSupportTest.kt`
+  - 代码审阅 file 控制帧封装与校验路径
 - Rollback:
   - 回退上述文件到当前主线版本
 
-##### ANDHUBRES-3 - 服务侧状态连续性
+##### ANDFILE-3 - File 页面与导航
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
-- Goal: 让前台通知和服务内部状态随 runtime 变化持续刷新，而不是只在启动瞬间固定文本。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
+- Goal: 提供 Android File v1 的正式 UI 入口。
 - Files / Modules:
-  - `app/src/main/java/com/myflowhub/android/HubService.kt`
-  - `app/src/main/java/com/myflowhub/android/HubServiceSupport.kt`（conditional）
+  - `app/src/main/java/com/myflowhub/android/ui/FileScreen.kt`
+  - `app/src/main/java/com/myflowhub/android/ui/AppRoot.kt`
 - Acceptance:
-  - 服务在运行时低频轮询 `bridge.status()`
-  - 前台通知能显示当前运行 / 父链 / 错误概况
-  - 服务销毁时能正确停止轮询
+  - 主导航新增 `File`
+  - 支持目标节点输入、目录刷新/进入/返回、文件预览、新建目录
+  - 基本错误提示和空状态可用
 - Test Points:
-  - 纯逻辑单测覆盖通知文本
-  - 代码审阅轮询生命周期
+  - 代码审阅 Compose 状态流转
+  - `.\gradlew.bat :app:assembleDebug`
 - Rollback:
-  - 回退服务与 helper 相关改动
+  - 回退 `FileScreen.kt` 与 `AppRoot.kt`
 
-##### ANDHUBRES-4 - Hub UI 状态刷新
+##### ANDFILE-4 - 测试与验证
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
-- Goal: 让用户在前台页面也能看到持续变化的 Hub 状态，而不是一次性快照。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
+- Goal: 为本轮 File v1 的关键解析和校验逻辑提供可重复验证。
 - Files / Modules:
-  - `app/src/main/java/com/myflowhub/android/ui/HubScreen.kt`
-- Acceptance:
-  - bound service 存在时，Hub 页面会低频刷新状态
-  - 不破坏现有 Start / Stop 交互与权限校验
-- Test Points:
-  - 代码审阅 Compose 生命周期与轮询退出条件
-- Rollback:
-  - 回退 `HubScreen.kt`
-
-##### ANDHUBRES-5 - 测试与验证
-- Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
-- Goal: 为本轮恢复与状态连续性逻辑提供可重复的本地验证。
-- Files / Modules:
-  - `app/src/test/java/com/myflowhub/android/HubServiceSupportTest.kt`（conditional）
+  - `app/src/test/java/com/myflowhub/android/FileProtocolSupportTest.kt`
   - `plan.md`
 - Acceptance:
-  - 单测覆盖恢复与通知核心规则
-  - `.\gradlew.bat testDebugUnitTest` 通过
+  - 单测覆盖目录规范化、目录名校验、list/read_text 解析
+  - `hubmobile go test`、`testDebugUnitTest` 与 `assembleDebug` 通过
 - Test Points:
+  - `cd hubmobile; $env:GOWORK='off'; go test ./... -count=1 -p 1`
   - `.\gradlew.bat testDebugUnitTest`
+  - `.\gradlew.bat :app:assembleDebug`
   - `git diff --check`
 - Rollback:
   - 回退测试文件与相关实现
 
-##### ANDHUBRES-6 - 自审与归档
+##### ANDFILE-5 - 自审与归档
 - Owner: `main`
-- Worktree: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience`
-- Plan Path: `D:\project\MyFlowHub3\worktrees\fix-android-hub-resilience\plan.md`
-- Goal: 确保本轮实现、验证和可复用经验可审计。
+- Worktree: `D:\project\MyFlowHub3\worktrees\feat-android-file-module`
+- Plan Path: `D:\project\MyFlowHub3\worktrees\feat-android-file-module\plan.md`
+- Goal: 确保本轮 File v1 的实现、验证和归档可审计。
 - Files / Modules:
   - `plan.md`
-  - `docs/change/2026-04-01_android-hub-resilience.md`
+  - `docs/change/2026-04-02_android-file-module.md`
   - `docs/lessons/*.md`（conditional）
   - `docs/lessons/README.md`（conditional）
 - Acceptance:
@@ -307,61 +313,59 @@
   - 删除本轮 archive / lesson 并回退实现文件
 
 #### Dependencies
-- Android foreground service 生命周期与通知能力
-- `HubBridge.start/stop/status`
-- `Prefs.load/save`
-- `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\core.md` 中已有的父链自动重连语义
+- `hubmobile/client.go` 中现有 await client 能力
+- Android 登录态 `Prefs.ClientConfig`
+- `D:\project\MyFlowHub3\repo\MyFlowHub-Server\docs\specs\file.md`
+- 现有 Compose / Material3 页面结构
 
 #### Risks and Notes
-- 本轮聚焦“服务 / 进程重建后的恢复”和“状态连续性”，不承诺安卓平台意义上的强保活。
-- `hubmobile.Start()` 在 runtime 已存在时会返回当前状态，因此恢复路径即使遇到重复 start，也不会创建双实例。
-- UI 当前会把 Hub 表单持续保存到 `Prefs`；因此本轮必须额外引入“运行快照”，避免恢复语义与表单草稿混淆。
+- 当前 File 页面仍依赖手工输入目标节点，体验上还不等于 Win 的节点树浏览。
+- 本轮需要新增 `hubmobile/file.go`，因此本地 Go/AAR 验证依赖当前 workspace 中 `MyFlowHub-Server` / `MyFlowHub-SDK` / `MyFlowHub-Proto` 的目录镜像。
+- 若后续范围扩展到 `pull/offer/tasks`，需要回到 3.1 重新扩充计划。
 
 #### Parallelism Assessment
-- 本轮写集集中在 `HubService`、`Prefs`、`HubScreen` 和测试，状态逻辑高度耦合，不适合并行派发。
+- 本轮写集集中在同一 Android app 模块，`GoClientBridge`、helper、UI 和测试耦合较高，不适合并行派发。
 - 子Agent：不使用。
 
 #### Issue List
 - 无
 
 ### Stage 3.2 - Implementation
-- `ANDHUBRES-2`
-  - `Prefs.kt` 新增运行快照和 `desiredRunning` 持久化接口。
-  - `HubService.kt` 改为在 `ACTION_START` 时写入最近一次启动快照，在 `ACTION_STOP` 时清理 `desiredRunning`。
-  - `HubService.kt` 在 `intent == null` 场景下按持久化快照恢复，并在快照损坏或缺失时显式清理恢复状态。
-- `ANDHUBRES-3`
-  - 新增 `HubServiceSupport.kt`，抽出运行配置归一化、恢复决策和通知文本逻辑。
-  - `HubService.kt` 增加后台状态轮询，按 `bridge.status()` 更新 `state` 和前台通知。
-- `ANDHUBRES-4`
-  - `HubScreen.kt` 增加 bound service 存在时的前台状态轮询，使页面状态能持续刷新。
-- `ANDHUBRES-5`
-  - 新增 `HubServiceSupportTest.kt`，覆盖恢复和通知文本核心规则。
-  - 使用 `ANDROID_HOME=D:\project\MyFlowHub3\_android-sdk`、`ANDROID_SDK_ROOT=D:\project\MyFlowHub3\_android-sdk` 执行 `.\gradlew.bat testDebugUnitTest` 通过。
+- `ANDFILE-2`
+  - `hubmobile/file.go` 新增 `FileList` / `FileReadText` / `FileCreateDir`，补齐 file 控制帧 `KindCtrl` 前缀和 `hubId -> data.target` 路由语义。
+  - `GoClientBridge.kt` 反射新增 file 专用方法。
+  - `FileProtocolSupport.kt` 统一承载路径规范化、目录名校验和 list/read_text/mkdir 解析。
+- `ANDFILE-3`
+  - `FileScreen.kt` 新增 Android File v1 页面，支持目标节点输入、目录进入/返回、文本预览和新建目录。
+  - `AppRoot.kt` 新增 `File` 导航入口。
+- `ANDFILE-4`
+  - `FileProtocolSupportTest.kt` 覆盖路径和解析纯逻辑。
+  - `app/build.gradle.kts` 为本地 JVM 单测增加 `org.json:json`。
+  - 本地执行 `hubmobile go test`、AAR 构建、`testDebugUnitTest`、`assembleDebug` 全部通过。
 
 ### Stage 3.3 - Code Review
 - 需求覆盖：通过
-  - 已覆盖服务恢复、显式 Stop 不自动恢复、状态连续性和单测验证。
+  - 已覆盖 File v1 的目录浏览、文本预览和 mkdir，未越界引入传输任务系统。
 - 架构合理性：通过
-  - Android 侧只修宿主生命周期，不重复实现 Go runtime 的父链重连。
+  - 识别并修正了通用 `SendAndAwait` 不适用于 file 控制帧的问题，最终方案与 Win 现有 file await 语义保持一致。
 - 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：通过
-  - 状态轮询保持秒级低频，通知只在状态变化时更新。
+  - 请求均按用户手势触发，无新增后台轮询；解析逻辑为常量级 JSON 处理。
 - 可读性与一致性：通过
-  - 运行快照与表单配置分离，职责边界清晰。
+  - file 协议 helper、bridge 和 UI 职责分层清晰，命名与现有 Android 模块一致。
 - 可扩展性与配置化：通过
-  - 后续若需要 boot restore 或更多后台策略，可复用同一套快照 / 恢复 helper。
+  - `hubmobile/file.go` 与 `FileProtocolSupport.kt` 为后续 `pull/offer/tasks` 扩展保留了入口。
 - 稳定性与安全：通过
-  - 恢复前检查快照；启动失败和恢复失败都会清理 `desiredRunning`，避免错误循环。
+  - 本地前置校验 `hubId` / `targetId` / 目录名；file 响应 code 和 op 均有显式判定。
 - 测试覆盖情况：通过
-  - 本地 JUnit 已覆盖恢复与通知逻辑；`testDebugUnitTest` 通过。
-  - 残余风险：当前环境未做真机进程回收场景验证。
+  - `hubmobile go test`、`testDebugUnitTest`、AAR 构建和 `assembleDebug` 均通过。
+  - 残余风险：当前环境未做真机联调验证，目录浏览与文本预览仍缺少设备侧人工冒烟。
 - 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）：通过
   - 未使用子 Agent。
 
 ### Stage 4 - Change Archive
-- 使用 `$m-docs` 完成变更归档与 lesson 路由校验。
-- `docs/change/2026-04-01_android-hub-resilience.md`：已创建
-- `docs/lessons/android-hub-service-restart.md`：已创建
-- `docs/lessons/README.md`：已更新
+- 使用 `$m-docs` 完成变更归档和 lessons 影响校验。
+- `docs/change/2026-04-02_android-file-module.md`：已创建
+- `docs/lessons/android-hubmobile-local-replace.md`：已更新
 - Requirements impact: `none`
 - Specs impact: `none`
 - Lessons impact: `updated`

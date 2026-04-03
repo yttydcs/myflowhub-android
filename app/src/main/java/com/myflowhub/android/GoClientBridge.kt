@@ -26,6 +26,33 @@ class GoClientBridge {
     private val configSetMethod = GoReflect.method(cls, "ConfigSet", String::class.java, String::class.java, String::class.java, String::class.java)
 
     private val logsPullMethod = GoReflect.method(cls, "LogsPull", String::class.java, String::class.java)
+    private val fileListMethod = GoReflect.method(
+        cls,
+        "FileList",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val fileReadTextMethod = GoReflect.method(
+        cls,
+        "FileReadText",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
+    private val fileCreateDirMethod = GoReflect.method(
+        cls,
+        "FileCreateDir",
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+        String::class.java,
+    )
 
     private val varStoreListMethod = GoReflect.method(
         cls,
@@ -213,6 +240,18 @@ class GoClientBridge {
 
     fun logsPull(cursor: String, limit: String): String =
         invokeString(logsPullMethod, "{}", cursor, limit)
+
+    fun fileList(sourceId: String, hubId: String, targetId: String, dir: String): String {
+        return requireString(fileListMethod, "FileList", sourceId, hubId, targetId, dir)
+    }
+
+    fun fileReadText(sourceId: String, hubId: String, targetId: String, dir: String, name: String, maxBytes: String = "65536"): String {
+        return requireString(fileReadTextMethod, "FileReadText", sourceId, hubId, targetId, dir, name, maxBytes)
+    }
+
+    fun fileCreateDir(sourceId: String, hubId: String, targetId: String, dir: String, name: String): String {
+        return requireString(fileCreateDirMethod, "FileCreateDir", sourceId, hubId, targetId, dir, name)
+    }
 
     fun varStoreList(sourceId: String, targetId: String, owner: String): String {
         return requireString(varStoreListMethod, "VarStoreList", sourceId, targetId, owner)

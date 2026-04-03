@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.DrawerValue
@@ -64,6 +65,7 @@ private enum class AppTab(val label: String, val icon: ImageVector) {
     Login("Login", Icons.Outlined.AccountCircle),
     Hub("Hub", Icons.Outlined.Hub),
     Devices("Devices", Icons.Outlined.Devices),
+    File("File", Icons.Outlined.Folder),
     VarStore("VarStore", Icons.Outlined.Storage),
     TopicBus("TopicBus", Icons.AutoMirrored.Outlined.Chat),
     Logs("Logs", Icons.AutoMirrored.Outlined.Article),
@@ -223,6 +225,13 @@ fun AppRoot() {
                 goError = goError,
                 cfg = clientCfg,
                 ui = ui,
+            )
+
+            AppTab.File -> FileScreen(
+                modifier = contentModifier,
+                go = go,
+                goError = goError,
+                cfg = clientCfg,
             )
 
             AppTab.VarStore -> VarStoreScreen(
