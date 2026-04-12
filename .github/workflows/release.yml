@@ -18,25 +18,58 @@ jobs:
           fetch-depth: 0
           path: repo/MyFlowHub-Android
 
+      - name: Resolve hubmobile dependency refs
+        id: deps
+        shell: bash
+        working-directory: repo/MyFlowHub-Android
+        run: |
+          set -euo pipefail
+          hub_go_mod="hubmobile/go.mod"
+          resolve_ref() {
+            local module="$1"
+            local version
+            version="$(awk -v module="${module}" '
+              $1 == "require" && $2 == module { print $3; exit }
+              $1 == module { print $2; exit }
+            ' "${hub_go_mod}")"
+            if [[ -z "${version}" ]]; then
+              echo "无法从 ${hub_go_mod} 解析 ${module} 版本" >&2
+              exit 1
+            fi
+            printf '%s' "${version}"
+          }
+          server_ref="$(resolve_ref 'github.com/yttydcs/myflowhub-server')"
+          sdk_ref="$(resolve_ref 'github.com/yttydcs/myflowhub-sdk')"
+          proto_ref="$(resolve_ref 'github.com/yttydcs/myflowhub-proto')"
+          echo "server_ref=${server_ref}" >> "$GITHUB_OUTPUT"
+          echo "sdk_ref=${sdk_ref}" >> "$GITHUB_OUTPUT"
+          echo "proto_ref=${proto_ref}" >> "$GITHUB_OUTPUT"
+          {
+            echo "Resolved hubmobile dependency refs:"
+            echo "- Server: ${server_ref}"
+            echo "- SDK: ${sdk_ref}"
+            echo "- Proto: ${proto_ref}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout Server (for hubmobile replace)
         uses: actions/checkout@v4
         with:
           repository: yttydcs/myflowhub-server
-          ref: main
+          ref: ${{ steps.deps.outputs.server_ref }}
           path: repo/MyFlowHub-Server
 
       - name: Checkout SDK (for hubmobile replace)
         uses: actions/checkout@v4
         with:
           repository: yttydcs/myflowhub-sdk
-          ref: main
+          ref: ${{ steps.deps.outputs.sdk_ref }}
           path: repo/MyFlowHub-SDK
 
       - name: Checkout Proto (for hubmobile replace)
         uses: actions/checkout@v4
         with:
           repository: yttydcs/myflowhub-proto
-          ref: main
+          ref: ${{ steps.deps.outputs.proto_ref }}
           path: repo/MyFlowHub-Proto
 
       - name: Parse tag -> versionName/versionCode
@@ -67,8 +100,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.25.7"
-          cache: true
-          cache-dependency-path: repo/MyFlowHub-Android/hubmobile/go.sum
+          cache: false
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -85,6 +117,8 @@ jobs:
 
       - name: Setup Gradle cache
         uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-disabled: true
 
       - name: Install gomobile (pinned by hubmobile/go.mod)
         shell: bash
@@ -150,12 +184,19 @@ jobs:
           set -euo pipefail
           android_commit="$(git -C repo/MyFlowHub-Android rev-parse HEAD)"
           server_commit="$(git -C repo/MyFlowHub-Server rev-parse HEAD)"
+          sdk_commit="$(git -C repo/MyFlowHub-SDK rev-parse HEAD)"
+          proto_commit="$(git -C repo/MyFlowHub-Proto rev-parse HEAD)"
           {
             echo "tag=${GITHUB_REF_NAME}"
             echo "versionName=${{ steps.version.outputs.version_name }}"
             echo "versionCode=${{ steps.version.outputs.version_code }}"
+            echo "serverRef=${{ steps.deps.outputs.server_ref }}"
+            echo "sdkRef=${{ steps.deps.outputs.sdk_ref }}"
+            echo "protoRef=${{ steps.deps.outputs.proto_ref }}"
             echo "androidCommit=${android_commit}"
             echo "serverCommit=${server_commit}"
+            echo "sdkCommit=${sdk_commit}"
+            echo "protoCommit=${proto_commit}"
             echo "runner=${RUNNER_OS}"
             echo "builtAtUtc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             echo "go=$(go version)"

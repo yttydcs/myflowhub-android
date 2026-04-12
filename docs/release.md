@@ -91,15 +91,15 @@ git push origin v0.1.0
 - `../../MyFlowHub-SDK`
 - `../../MyFlowHub-Proto`
 
-GitHub Actions 会额外 checkout 以下仓库到同一 workspace，以保证 `GOWORK=off` 下的 `gomobile bind` 能命中与本地开发一致的相对目录结构：
+GitHub Actions 会先解析 `hubmobile/go.mod` 中当前声明的 semver 版本，再额外 checkout 以下仓库到同一 workspace，以保证 `GOWORK=off` 下的 `gomobile bind` 能命中与本地开发一致、且与 release 基线一致的相对目录结构：
 
-- `yttydcs/myflowhub-server@main` -> `repo/MyFlowHub-Server`
-- `yttydcs/myflowhub-sdk@main` -> `repo/MyFlowHub-SDK`
-- `yttydcs/myflowhub-proto@main` -> `repo/MyFlowHub-Proto`
+- `yttydcs/myflowhub-server@<hubmobile/go.mod 中声明的版本>` -> `repo/MyFlowHub-Server`
+- `yttydcs/myflowhub-sdk@<hubmobile/go.mod 中声明的版本>` -> `repo/MyFlowHub-SDK`
+- `yttydcs/myflowhub-proto@<hubmobile/go.mod 中声明的版本>` -> `repo/MyFlowHub-Proto`
 
 这样可以保证：
 - CI / Release 构建时 APK 始终内置 Hub（通过 `gomobile bind` 生成 AAR）。
-- runner 上的 Go module 解析与当前 `hubmobile/go.mod` 保持一致，避免因为本地 `replace` 目录缺失而在 `Build AAR (gomobile)` 失败。
-- 不受依赖仓 default branch 漂移影响；即使某个依赖仓默认分支不是 `main`，workflow 仍会拉到 release 期望的主线代码。
-- Release 仍采用 `myflowhub-server` 的 `main` 最新提交，并写入 `build-info.txt` 以便审计与回放。
+- runner 上的 Go module 解析与当前 `hubmobile/go.mod` 保持一致，避免因为本地 `replace` 目录缺失或依赖仓 `main` 漂移而在 `Build AAR (gomobile)` 失败。
+- 若 `hubmobile/go.mod` 中声明的依赖版本尚未真正发布，对应 checkout 会直接失败，问题会提前暴露，而不是隐式回退到某个无关的 `main` 头部提交。
+- Release 会把实际使用的 `server/sdk/proto` ref 与 commit 一起写入 `build-info.txt`，便于审计与回放。
 
