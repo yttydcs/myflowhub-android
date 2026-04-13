@@ -1,5 +1,7 @@
 package main
 
+// Context: This file supports the Android app or gomobile host flow around main_test.
+
 import (
 	"bytes"
 	"encoding/binary"
@@ -85,4 +87,3 @@ func TestDecodeFrameRejectsHugePayload(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
-

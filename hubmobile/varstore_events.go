@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around varstore_events.
+
 import (
 	"encoding/json"
 	"strings"
@@ -28,9 +30,9 @@ type varStoreEvent struct {
 }
 
 type varStoreEventPullResp struct {
-	Cursor     int64          `json:"cursor"`
-	NextCursor int64          `json:"next_cursor"`
-	HasMore    bool           `json:"has_more"`
+	Cursor     int64           `json:"cursor"`
+	NextCursor int64           `json:"next_cursor"`
+	HasMore    bool            `json:"has_more"`
 	Events     []varStoreEvent `json:"events"`
 }
 
@@ -187,4 +189,3 @@ func VarStoreEventsPull(cursor, limit string) string {
 	raw, _ := json.Marshal(resp)
 	return string(raw)
 }
-

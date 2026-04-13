@@ -2,6 +2,8 @@
 
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around rfcomm_android.
+
 import "github.com/yttydcs/myflowhub-core/listener/rfcomm_listener"
 
 // SetRFCOMMProvider injects an Android Bluetooth Classic RFCOMM provider.
@@ -11,4 +13,3 @@ import "github.com/yttydcs/myflowhub-core/listener/rfcomm_listener"
 func SetRFCOMMProvider(p rfcomm_listener.AndroidRFCOMMProvider) {
 	rfcomm_listener.SetAndroidRFCOMMProvider(p)
 }
-

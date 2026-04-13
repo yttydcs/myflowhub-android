@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around keys.
+
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -186,4 +188,3 @@ func getCachedPrivKey() (*ecdsa.PrivateKey, error) {
 func nowUnix() int64 {
 	return time.Now().Unix()
 }
-

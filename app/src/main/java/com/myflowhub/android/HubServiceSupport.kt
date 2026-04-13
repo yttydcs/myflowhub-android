@@ -1,4 +1,5 @@
 package com.myflowhub.android
+// Context: This file supports the Android app or gomobile host flow around HubServiceSupport.
 
 internal object HubServiceSupport {
     fun runtimeConfig(cfg: HubConfig, workDir: String): HubConfig {

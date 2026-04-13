@@ -1,4 +1,5 @@
 package com.myflowhub.android
+// Context: This file supports the Android app or gomobile host flow around HubBridge.
 
 /**
  * Bridge interface between Android and Go hub runtime.

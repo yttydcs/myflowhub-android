@@ -1,4 +1,5 @@
 package com.myflowhub.android
+// Context: This file supports the Android app or gomobile host flow around BluetoothRfcommSupport.
 
 import android.Manifest
 import android.content.Context

@@ -1,5 +1,7 @@
 package main
 
+// Context: This file supports the Android app or gomobile host flow around main.
+
 import (
 	"bufio"
 	"context"
@@ -33,8 +35,8 @@ const (
 	subprotoManagement uint8 = 1
 	subprotoAuth       uint8 = 2
 
-	actionRegister         = "register"
-	actionRegisterResp     = "register_resp"
+	actionRegister           = "register"
+	actionRegisterResp       = "register_resp"
 	actionAssistRegisterResp = "assist_register_resp"
 
 	actionNodeEcho     = "node_echo"
@@ -62,7 +64,7 @@ type header struct {
 	PayloadLen uint32
 }
 
-func (h header) major() uint8   { return h.TypeFmt & 0x03 }
+func (h header) major() uint8    { return h.TypeFmt & 0x03 }
 func (h header) subProto() uint8 { return (h.TypeFmt >> 2) & 0x3F }
 
 func newHeader(major, sub uint8) header {
@@ -355,7 +357,7 @@ func doRegister(ctx context.Context, conn net.Conn, reader *bufio.Reader, device
 }
 
 type listNodesResp struct {
-	Code  int `json:"code"`
+	Code  int    `json:"code"`
 	Msg   string `json:"msg,omitempty"`
 	Nodes []struct {
 		NodeID      uint32 `json:"node_id"`
@@ -582,4 +584,3 @@ func runEcho(args []string) {
 	}
 	fmt.Printf("echo ok: target=%d echo=%s\n", target, strconv.Quote(resp.Echo))
 }
-

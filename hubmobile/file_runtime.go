@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around file_runtime.
+
 import (
 	"context"
 	"encoding/json"

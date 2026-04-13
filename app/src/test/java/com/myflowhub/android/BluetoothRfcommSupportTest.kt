@@ -1,4 +1,5 @@
 package com.myflowhub.android
+// Context: This file supports the Android app or gomobile host flow around BluetoothRfcommSupportTest.
 
 import android.Manifest
 import org.junit.Assert.assertEquals

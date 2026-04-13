@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around last_error.
+
 import "sync/atomic"
 
 var lastErr atomic.Value // string
@@ -19,4 +21,3 @@ func GetLastError() string {
 	}
 	return ""
 }
-

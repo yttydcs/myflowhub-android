@@ -1,4 +1,5 @@
 package com.myflowhub.android
+// Context: This file supports the Android app or gomobile host flow around HubServiceSupportTest.
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

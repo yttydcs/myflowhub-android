@@ -1,4 +1,5 @@
 package com.myflowhub.android.ui
+// Context: This file supports the Android app or gomobile host flow around FileScreen.
 
 import android.content.Context
 import android.content.Intent

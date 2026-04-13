@@ -1,3 +1,5 @@
+// Context: This file supports the Android app or gomobile host flow around settings.gradle.
+
 pluginManagement {
     repositories {
         google()

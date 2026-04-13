@@ -1,4 +1,5 @@
 package com.myflowhub.android
+// Context: This file supports the Android app or gomobile host flow around HubService.
 
 import android.app.Notification
 import android.app.NotificationChannel

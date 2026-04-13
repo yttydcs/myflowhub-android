@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around workdir.
+
 import (
 	"errors"
 	"os"
@@ -42,4 +44,3 @@ func getWorkDir() (string, error) {
 	}
 	return wd, nil
 }
-

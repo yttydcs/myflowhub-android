@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around varstore.
+
 import (
 	"context"
 	"encoding/json"
@@ -460,4 +462,3 @@ func VarStoreUnsubscribe(sourceID, targetID, name, owner, subscriber string) (st
 	raw, _ := json.Marshal(out)
 	return string(raw), nil
 }
-

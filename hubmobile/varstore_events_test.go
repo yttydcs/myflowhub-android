@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around varstore_events_test.
+
 import "testing"
 
 func TestVarStoreEventBuffer_RingAndPull(t *testing.T) {
@@ -55,4 +57,3 @@ func TestVarStoreEventBuffer_RingAndPull(t *testing.T) {
 		t.Fatalf("expected empty pull at cursor=4; next=%d more=%v out=%v", next, more, out)
 	}
 }
-

@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around topicbus_events.
+
 import (
 	"encoding/json"
 	"strings"

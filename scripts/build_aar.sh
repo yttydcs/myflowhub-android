@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Context: This file supports the Android app or gomobile host flow around build_aar.
+
 set -euo pipefail
 
 TARGET="${1:-android/arm64}"

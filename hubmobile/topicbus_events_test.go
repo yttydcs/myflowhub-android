@@ -1,5 +1,7 @@
 package hubmobile
 
+// Context: This file supports the Android app or gomobile host flow around topicbus_events_test.
+
 import "testing"
 
 func TestTopicBusEventBuffer_RingAndPull(t *testing.T) {

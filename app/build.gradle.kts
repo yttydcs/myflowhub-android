@@ -1,3 +1,5 @@
+// Context: This file supports the Android app or gomobile host flow around build.gradle.
+
 import org.gradle.api.GradleException
 import org.gradle.api.JavaVersion
 

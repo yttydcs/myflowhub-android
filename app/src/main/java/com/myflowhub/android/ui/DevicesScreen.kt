@@ -1,4 +1,5 @@
 package com.myflowhub.android.ui
+// Context: This file supports the Android app or gomobile host flow around DevicesScreen.
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement

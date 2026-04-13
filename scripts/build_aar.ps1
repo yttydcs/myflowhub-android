@@ -1,3 +1,5 @@
+# Context: This file supports the Android app or gomobile host flow around build_aar.
+
 param(
   [string]$Target = 'android/arm64',
   [int]$AndroidApi = 26,
