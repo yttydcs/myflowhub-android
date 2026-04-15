@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around topicbus.
+// 本文件承载 Android `hubmobile` 桥接中与 `topicbus` 相关的逻辑。
 
 import (
 	"context"

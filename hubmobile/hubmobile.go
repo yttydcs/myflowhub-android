@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around hubmobile.
+// 本文件承载 Android `hubmobile` 桥接中与 `hubmobile` 相关的逻辑。
 
 import (
 	"context"
@@ -33,6 +33,7 @@ type statusDTO struct {
 	LastError string `json:"last_error"`
 }
 
+// Start 启动 Android 宿主内嵌的 Go Hub runtime，并返回 JSON 状态快照。
 func Start(addr, parentAddr, selfID, workDir string, rfcommEnable bool, rfcommUUID string, rfcommInsecure bool) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -69,6 +70,7 @@ func Start(addr, parentAddr, selfID, workDir string, rfcommEnable bool, rfcommUU
 	return marshalStatus(r.Status()), nil
 }
 
+// Stop 停掉当前 Hub runtime，并把全局运行指针清空。
 func Stop() (string, error) {
 	mu.Lock()
 	r := rt
@@ -87,6 +89,7 @@ func Stop() (string, error) {
 	return marshalStatus(r.Status()), nil
 }
 
+// Status 导出当前 Hub runtime 的最新状态，供 Kotlin 端轮询。
 func Status() string {
 	mu.Lock()
 	r := rt
@@ -97,6 +100,7 @@ func Status() string {
 	return marshalStatus(r.Status())
 }
 
+// marshalStatus 把 server runtime.Status 压成 Android 侧稳定依赖的 DTO。
 func marshalStatus(st hubruntime.Status) string {
 	dto := statusDTO{
 		Running: st.Running,
@@ -128,6 +132,7 @@ func EnsureLinked() error {
 	return nil
 }
 
+// EnsureInit 允许 Android 在真正 Start 前先准备 workDir 和 keys。
 // EnsureInit is a convenience no-op to allow Android to set workDir early (even before starting hub runtime).
 func EnsureInit(workDir string) error {
 	if err := Init(workDir); err != nil {

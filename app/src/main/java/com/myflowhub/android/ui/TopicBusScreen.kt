@@ -1,5 +1,5 @@
 package com.myflowhub.android.ui
-// Context: This file supports the Android app or gomobile host flow around TopicBusScreen.
+// 本文件实现 Android 客户端中与 `TopicBusScreen` 界面相关的宿主逻辑。
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints

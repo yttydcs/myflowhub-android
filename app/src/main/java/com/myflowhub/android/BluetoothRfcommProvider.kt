@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around BluetoothRfcommProvider.
+// 本文件实现 Android 宿主中与 `BluetoothRfcommProvider` 相关的逻辑。
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothServerSocket

@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around file_pull_test.
+// 本文件覆盖 Android `hubmobile` 桥接中与 `file_pull` 相关的行为。
 
 import (
 	"encoding/binary"

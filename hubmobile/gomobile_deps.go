@@ -2,7 +2,7 @@
 
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around gomobile_deps.
+// 本文件承载 Android `hubmobile` 桥接中与 `gomobile_deps` 相关的逻辑。
 
 import (
 	// Ensure `golang.org/x/mobile/bind` exists in the module graph.

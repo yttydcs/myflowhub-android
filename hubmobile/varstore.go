@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around varstore.
+// 本文件承载 Android `hubmobile` 桥接中与 `varstore` 相关的逻辑。
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 
 const defaultVarStoreTimeout = 8 * time.Second
 
+// VarStoreList 按 owner 枚举变量名，供 Android 侧浏览目标节点当前暴露的变量集合。
 func VarStoreList(sourceID, targetID, owner string) (string, error) {
 	src, err := parseUint32("source_id", sourceID)
 	if err != nil {
@@ -76,6 +77,7 @@ func VarStoreList(sourceID, targetID, owner string) (string, error) {
 	return string(raw), nil
 }
 
+// VarStoreGet 读取单个变量当前值，并在 bridge 层先兜底校验空变量名。
 func VarStoreGet(sourceID, targetID, name, owner string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -143,6 +145,7 @@ func VarStoreGet(sourceID, targetID, name, owner string) (string, error) {
 	return string(raw), nil
 }
 
+// VarStoreSet 写入变量值，同时约束 visibility 只能落在协议允许的枚举里。
 func VarStoreSet(sourceID, targetID, name, value, visibility, typ, owner string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -227,6 +230,7 @@ func VarStoreSet(sourceID, targetID, name, value, visibility, typ, owner string)
 	return string(raw), nil
 }
 
+// VarStoreRevoke 撤销变量；这里复用 get 请求体结构，只保留 name/owner 两个协议关键信息。
 func VarStoreRevoke(sourceID, targetID, name, owner string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -294,6 +298,7 @@ func VarStoreRevoke(sourceID, targetID, name, owner string) (string, error) {
 	return string(raw), nil
 }
 
+// VarStoreSubscribe 订阅变量变更；未显式传 subscriber 时默认回落到当前 source 节点。
 func VarStoreSubscribe(sourceID, targetID, name, owner, subscriber string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -378,6 +383,7 @@ func VarStoreSubscribe(sourceID, targetID, name, owner, subscriber string) (stri
 	return string(raw), nil
 }
 
+// VarStoreUnsubscribe 取消订阅，并兼容服务端仍复用 subscribe_resp 的历史响应约定。
 func VarStoreUnsubscribe(sourceID, targetID, name, owner, subscriber string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around varstore_events_test.
+// 本文件覆盖 Android `hubmobile` 桥接中与 `varstore_events` 相关的行为。
 
 import "testing"
 

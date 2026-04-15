@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around HubStateJson.
+// 本文件实现 Android 宿主中与 `HubStateJson` 相关的逻辑。
 
 import org.json.JSONObject
 

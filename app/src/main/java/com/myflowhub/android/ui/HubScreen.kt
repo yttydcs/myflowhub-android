@@ -1,5 +1,5 @@
 package com.myflowhub.android.ui
-// Context: This file supports the Android app or gomobile host flow around HubScreen.
+// 本文件实现 Android 客户端中与 `HubScreen` 界面相关的宿主逻辑。
 
 import android.content.ComponentName
 import android.content.Context
@@ -59,6 +59,7 @@ fun HubScreen(
     requestBluetoothPermission: () -> Unit,
     onCfgChange: (HubConfig) -> Unit,
 ) {
+    // Hub 页面负责编辑启动配置、绑定前台 service，并实时显示运行状态。
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var svc by remember { mutableStateOf<HubService?>(null) }
@@ -401,6 +402,7 @@ fun HubScreen(
     }
 }
 
+// 把当前页面配置编码到 Intent 中，交给前台 service 真正启动 Hub。
 private fun startHubService(context: Context, cfg: HubConfig) {
     val intent = Intent(context, HubService::class.java).apply {
         action = HubService.ACTION_START
@@ -414,6 +416,7 @@ private fun startHubService(context: Context, cfg: HubConfig) {
     ContextCompat.startForegroundService(context, intent)
 }
 
+// 显式向 service 发送停止动作，保持与启动入口对称。
 private fun stopHubService(context: Context) {
     val intent = Intent(context, HubService::class.java).apply {
         action = HubService.ACTION_STOP
@@ -421,6 +424,7 @@ private fun stopHubService(context: Context) {
     context.startService(intent)
 }
 
+// 在 IO 线程读取 service 状态，避免 Compose 主线程被桥接调用阻塞。
 private suspend fun pollState(svc: HubService?): HubState? {
     if (svc == null) return null
     return withContext(Dispatchers.IO) {

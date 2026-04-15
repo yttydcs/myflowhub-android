@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around client.
+// 本文件承载 Android `hubmobile` 桥接中与 `client` 相关的逻辑。
 
 import (
 	"context"
@@ -46,6 +46,7 @@ var (
 	authState authSnapshot
 )
 
+// ensureClient 懒初始化全局 await client，并挂上未匹配帧/观测帧回调。
 func ensureClient() *sdkawait.Client {
 	clientMu.Lock()
 	defer clientMu.Unlock()
@@ -58,6 +59,7 @@ func ensureClient() *sdkawait.Client {
 	return c
 }
 
+// onUnmatchedFrame 只做轻量日志和 UI 事件采集，避免在未匹配流量上做重解码。
 func onUnmatchedFrame(hdr core.IHeader, payload []byte) {
 	// Keep it light: avoid expensive decoding; show header metadata and a short payload preview.
 	if hdr == nil {
@@ -87,6 +89,7 @@ func onUnmatchedFrame(hdr core.IHeader, payload []byte) {
 	captureTopicBusUnmatchedFrame(hdr, payload)
 }
 
+// onClientError 把底层会话错误收敛到 bridge 全局状态，供 UI 查询。
 func onClientError(err error) {
 	if err == nil {
 		return
@@ -96,6 +99,7 @@ func onClientError(err error) {
 	logWarn("client session error", "err", err.Error())
 }
 
+// Connect 建立到目标 Hub 的 await client 连接，并处理地址切换时的旧连接回收。
 func Connect(addr string) error {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
@@ -132,6 +136,7 @@ func Connect(addr string) error {
 	return nil
 }
 
+// Close 主动关闭当前 client 会话，并清空连接地址缓存。
 func Close() {
 	clientMu.Lock()
 	c := client
@@ -146,10 +151,12 @@ func Close() {
 	logInfo("client closed")
 }
 
+// IsConnected 返回 UI 是否还能继续发起协议请求。
 func IsConnected() bool {
 	return clientConnected.Load()
 }
 
+// LastAddr 返回最近一次成功连接的地址，便于页面回显。
 func LastAddr() string {
 	clientMu.Lock()
 	addr := clientAddr
@@ -157,6 +164,7 @@ func LastAddr() string {
 	return addr
 }
 
+// AuthState 以 JSON 形式导出当前认证快照，供 Kotlin 侧直接展示。
 func AuthState() string {
 	authMu.Lock()
 	st := authState
@@ -165,6 +173,7 @@ func AuthState() string {
 	return string(raw)
 }
 
+// ClearAuth 清空桥接层保存的认证结果，不影响远端真实会话。
 func ClearAuth() {
 	authMu.Lock()
 	authState = authSnapshot{}
@@ -172,6 +181,7 @@ func ClearAuth() {
 	logInfo("auth state cleared")
 }
 
+// GetSelfNodeID 返回当前认证快照里的 node_id，供其他子协议页面复用。
 func GetSelfNodeID() string {
 	authMu.Lock()
 	id := authState.NodeID
@@ -179,6 +189,7 @@ func GetSelfNodeID() string {
 	return fmt.Sprintf("%d", id)
 }
 
+// Register 走 auth/register，并把成功结果落到 auth 快照中。
 func Register(deviceID string) (string, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
@@ -233,6 +244,7 @@ func Register(deviceID string) (string, error) {
 	return string(raw), nil
 }
 
+// Login 走 auth/login，并在成功后刷新当前设备的 node/hub/role 快照。
 func Login(deviceID, nodeID string) (string, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
@@ -304,6 +316,7 @@ func Login(deviceID, nodeID string) (string, error) {
 	return string(raw), nil
 }
 
+// SendAndAwait 暴露通用命令入口，供协议实验页直接按子协议发请求。
 func SendAndAwait(subProto, sourceID, targetID, action, dataJSON, expectAction, timeoutMs string) (string, error) {
 	sub, err := parseUint8("sub_proto", subProto)
 	if err != nil {
@@ -370,6 +383,7 @@ func SendAndAwait(subProto, sourceID, targetID, action, dataJSON, expectAction, 
 	return string(raw), nil
 }
 
+// sendAndAwait 负责统一构造 HeaderTcp 命令头，并把 SDK 错误翻译成 UI 友好的文本。
 func sendAndAwait(ctx context.Context, sub uint8, src, tgt uint32, payload []byte, expectAction string) (sdkawait.Response, error) {
 	c := ensureClient()
 	hdr := (&header.HeaderTcp{}).
@@ -387,6 +401,7 @@ func sendAndAwait(ctx context.Context, sub uint8, src, tgt uint32, payload []byt
 	return resp, nil
 }
 
+// setAuthSnapshot 在认证成功后原子更新桥接层缓存，后续页面都从这里读取身份。
 func setAuthSnapshot(action, deviceID string, data protoauth.RespData) {
 	authMu.Lock()
 	authState = authSnapshot{
@@ -404,6 +419,7 @@ func setAuthSnapshot(action, deviceID string, data protoauth.RespData) {
 	logInfo("auth ok", "action", action, "device", deviceID, "node", data.NodeID, "hub", data.HubID, "role", strings.TrimSpace(data.Role))
 }
 
+// setAuthResult 在失败或登出场景记录最近一次认证动作的结果。
 func setAuthResult(ok bool, action, msg string) {
 	authMu.Lock()
 	st := authState
@@ -415,6 +431,7 @@ func setAuthResult(ok bool, action, msg string) {
 	authMu.Unlock()
 }
 
+// cloneStrings 复制权限切片，避免外部复用底层数组。
 func cloneStrings(in []string) []string {
 	if len(in) == 0 {
 		return nil

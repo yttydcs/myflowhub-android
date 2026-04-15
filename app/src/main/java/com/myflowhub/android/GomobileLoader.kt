@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around GomobileLoader.
+// 本文件实现 Android 宿主中与 `GomobileLoader` 相关的逻辑。
 
 internal object GomobileLoader {
     fun loadHubClass(): Class<*> {

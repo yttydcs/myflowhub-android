@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around Prefs.
+// 本文件实现 Android 宿主中与 `Prefs` 相关的逻辑。
 
 import android.content.Context
 import java.util.UUID

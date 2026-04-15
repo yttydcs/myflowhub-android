@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around HubStartBindingTest.
+// 本文件覆盖 Android 宿主中与 `HubStartBindingTest` 相关的行为。
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

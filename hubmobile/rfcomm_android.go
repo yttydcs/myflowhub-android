@@ -2,7 +2,7 @@
 
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around rfcomm_android.
+// 本文件承载 Android `hubmobile` 桥接中与 `rfcomm_android` 相关的逻辑。
 
 import "github.com/yttydcs/myflowhub-core/listener/rfcomm_listener"
 

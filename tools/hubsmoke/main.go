@@ -1,6 +1,6 @@
 package main
 
-// Context: This file supports the Android app or gomobile host flow around main.
+// 本文件实现 Android `hubmobile` 冒烟工具中与 `main` 相关的逻辑。
 
 import (
 	"bufio"

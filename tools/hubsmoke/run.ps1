@@ -1,4 +1,4 @@
-# Context: This file supports the Android app or gomobile host flow around run.
+# 本文件实现 Android `hubmobile` 冒烟工具中与 `run` 相关的逻辑。
 
 $ErrorActionPreference = 'Stop'
 

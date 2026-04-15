@@ -1,5 +1,5 @@
 package com.myflowhub.android.ui
-// Context: This file supports the Android app or gomobile host flow around AppRoot.
+// 本文件实现 Android 客户端中与 `AppRoot` 界面相关的宿主逻辑。
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -79,6 +79,7 @@ private fun AppTopBar(
     showMenu: Boolean,
     onMenuClick: () -> Unit,
 ) {
+    // 顶栏只承载全局品牌和抽屉入口，不参与具体业务状态判断。
     val containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
     TopAppBar(
         title = { Text("MyFlowHub") },
@@ -96,6 +97,7 @@ private fun AppTopBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot() {
+    // AppRoot 统一编排导航、权限、Go bridge 初始化和各个页面的共享状态。
     val context = LocalContext.current
     val workDir = remember { File(context.filesDir, "hub").absolutePath }
 
@@ -139,6 +141,7 @@ fun AppRoot() {
         }
     }
 
+    // 在真正需要 RFCOMM 前补申请权限，避免页面里重复散落权限判断。
     fun requestBluetoothPermission() {
         val missing = BluetoothRfcommSupport.missingRuntimePermissions(context)
         if (missing.isEmpty()) {
@@ -191,6 +194,7 @@ fun AppRoot() {
 
     @Composable
     fun Content(contentModifier: Modifier) {
+        // 根据当前 tab 把共享 bridge/配置分发给对应页面。
         when (current) {
             AppTab.Login -> LoginScreen(
                 modifier = contentModifier,

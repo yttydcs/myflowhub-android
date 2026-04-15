@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around HubState.
+// 本文件实现 Android 宿主中与 `HubState` 相关的逻辑。
 
 data class HubState(
     val running: Boolean = false,

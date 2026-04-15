@@ -1,5 +1,5 @@
 package com.myflowhub.android.ui
-// Context: This file supports the Android app or gomobile host flow around LoginScreen.
+// 本文件实现 Android 客户端中与 `LoginScreen` 界面相关的宿主逻辑。
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -53,6 +53,7 @@ fun LoginScreen(
     requestBluetoothPermission: () -> Unit,
     onCfgChange: (Prefs.ClientConfig) -> Unit,
 ) {
+    // 登录页同时承担客户端连接、注册/登录和若干子协议页面的共享会话入口。
     val scope = rememberCoroutineScope()
     var connected by remember { mutableStateOf(false) }
     var lastAddr by remember { mutableStateOf("") }
@@ -63,6 +64,7 @@ fun LoginScreen(
     var busyLabel by remember { mutableStateOf("") }
     var opSeq by remember { mutableStateOf(0) }
 
+    // 把 `-hub` / `-ui` 这类后缀剥掉，便于生成同一设备族的 UI 侧 device_id。
     fun baseOf(id: String): String {
         val trimmed = id.trim()
         var base = trimmed
@@ -75,6 +77,7 @@ fun LoginScreen(
         return if (base.isBlank()) trimmed else base
     }
 
+    // 让 UI 侧 device_id 与 Hub self_id 保持成对命名，避免注册/登录时混淆身份。
     fun normalizeUiDeviceId(id: String): String {
         val current = id.trim()
         if (current.isBlank()) return ""
@@ -88,6 +91,7 @@ fun LoginScreen(
         }
     }
 
+    // 读取当前 Go bridge 连接快照，并在异步操作期间按 token 防抖回写。
     suspend fun refreshConn(token: Int? = null) {
         val g = go
         if (g == null) {
@@ -109,6 +113,7 @@ fun LoginScreen(
         lastError = snapshot.third
     }
 
+    // 开启一个新的异步操作序列，同时关闭旧操作的 UI 占位状态。
     fun beginOp(label: String): Int {
         opJob?.cancel()
         val token = opSeq + 1
@@ -119,12 +124,14 @@ fun LoginScreen(
         return token
     }
 
+    // 只有当前 token 仍然有效时才结束 loading，避免旧请求覆盖新状态。
     fun endOp(token: Int) {
         if (opSeq != token) return
         busy = false
         busyLabel = ""
     }
 
+    // 用户主动取消时推进序列号，确保旧协程的回写全部失效。
     fun cancelOp() {
         opSeq += 1
         opJob?.cancel()

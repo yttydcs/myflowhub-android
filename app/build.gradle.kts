@@ -1,4 +1,4 @@
-// Context: This file supports the Android app or gomobile host flow around build.gradle.
+// 本文件承载 Android 工程中与 `build` 相关的构建配置。
 
 import org.gradle.api.GradleException
 import org.gradle.api.JavaVersion

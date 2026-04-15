@@ -1,4 +1,4 @@
-# Context: This file supports the Android app or gomobile host flow around build_aar.
+# 本脚本承载 Android 宿主或 `hubmobile` 集成中与 `build_aar` 相关的构建/验证流程。
 
 param(
   [string]$Target = 'android/arm64',

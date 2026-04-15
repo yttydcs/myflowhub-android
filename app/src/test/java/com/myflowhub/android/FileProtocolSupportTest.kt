@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around FileProtocolSupportTest.
+// 本文件覆盖 Android 宿主中与 `FileProtocolSupportTest` 相关的行为。
 
 import java.io.File
 import org.junit.Assert.assertEquals

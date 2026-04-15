@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around file.
+// 本文件承载 Android `hubmobile` 桥接中与 `file` 相关的逻辑。
 
 import (
 	"context"
@@ -59,6 +59,7 @@ type fileOfferStart struct {
 	LocalPath    string `json:"local_path,omitempty"`
 }
 
+// FileList 发起远端目录枚举请求，供文件页构建目录树。
 func FileList(sourceID, hubID, targetID, dir string) (string, error) {
 	target, err := parseUint32("target_id", targetID)
 	if err != nil {
@@ -73,6 +74,7 @@ func FileList(sourceID, hubID, targetID, dir string) (string, error) {
 	return fileReadAndAwait(sourceID, hubID, req)
 }
 
+// FileReadText 读取远端文本文件的小片段，避免 UI 直接处理原始协议细节。
 func FileReadText(sourceID, hubID, targetID, dir, name, maxBytes string) (string, error) {
 	target, err := parseUint32("target_id", targetID)
 	if err != nil {
@@ -97,6 +99,7 @@ func FileReadText(sourceID, hubID, targetID, dir, name, maxBytes string) (string
 	return fileReadAndAwait(sourceID, hubID, req)
 }
 
+// FileCreateDir 对远端 file provider 发起 mkdir 写请求。
 func FileCreateDir(sourceID, hubID, targetID, dir, name string) (string, error) {
 	target, err := parseUint32("target_id", targetID)
 	if err != nil {
@@ -112,6 +115,7 @@ func FileCreateDir(sourceID, hubID, targetID, dir, name string) (string, error) 
 	return fileWriteAndAwait(sourceID, hubID, req)
 }
 
+// FilePull 协商一次拉取会话，并把本地下载根和目标路径一起回传给 UI。
 func FilePull(sourceID, hubID, targetID, dir, name, wantHash, localBaseDir string) (string, error) {
 	target, err := parseUint32("target_id", targetID)
 	if err != nil {
@@ -182,6 +186,7 @@ func FilePull(sourceID, hubID, targetID, dir, name, wantHash, localBaseDir strin
 	return string(encoded), nil
 }
 
+// FileOffer 协商一次上传会话，顺带校验本地文件和续传所需元信息。
 func FileOffer(sourceID, hubID, targetID, dir, name, wantHash, localBaseDir string) (string, error) {
 	target, err := parseUint32("target_id", targetID)
 	if err != nil {
@@ -292,6 +297,7 @@ func FileOffer(sourceID, hubID, targetID, dir, name, wantHash, localBaseDir stri
 	return string(encoded), nil
 }
 
+// fileReadAndAwait 封装 file/read 控制请求的编解码与响应校验。
 func fileReadAndAwait(sourceID, hubID string, req protocolfile.ReadReq) (string, error) {
 	src, hub, err := parseFileRoute(sourceID, hubID, req.Target)
 	if err != nil {
@@ -341,6 +347,7 @@ func fileReadAndAwait(sourceID, hubID string, req protocolfile.ReadReq) (string,
 	return string(raw), nil
 }
 
+// fileWriteAndAwait 封装 file/write 控制请求的编解码与响应校验。
 func fileWriteAndAwait(sourceID, hubID string, req protocolfile.WriteReq) (string, error) {
 	src, hub, err := parseFileRoute(sourceID, hubID, req.Target)
 	if err != nil {
@@ -390,6 +397,7 @@ func fileWriteAndAwait(sourceID, hubID string, req protocolfile.WriteReq) (strin
 	return string(raw), nil
 }
 
+// parseFileRoute 统一解析 file 子协议需要的 source/hub/target 三段路由。
 func parseFileRoute(sourceID, hubID string, targetID uint32) (uint32, uint32, error) {
 	src, err := parseUint32("source_id", sourceID)
 	if err != nil {
@@ -419,6 +427,7 @@ func parseFileRoute(sourceID, hubID string, targetID uint32) (uint32, uint32, er
 	return src, hub, nil
 }
 
+// wrapFileCtrlPayload 为 file 控制请求补上 KindCtrl 前缀字节。
 func wrapFileCtrlPayload(payload []byte) []byte {
 	out := make([]byte, 1+len(payload))
 	out[0] = protocolfile.KindCtrl
@@ -426,14 +435,17 @@ func wrapFileCtrlPayload(payload []byte) []byte {
 	return out
 }
 
+// validateFileReadResp 统一校验读响应的 op/code 组合是否合法。
 func validateFileReadResp(expectedOp string, resp protocolfile.ReadResp) error {
 	return validateFileResp(expectedOp, resp.Op, resp.Code, resp.Msg, "file read")
 }
 
+// validateFileWriteResp 统一校验写响应的 op/code 组合是否合法。
 func validateFileWriteResp(expectedOp string, resp protocolfile.WriteResp) error {
 	return validateFileResp(expectedOp, resp.Op, resp.Code, resp.Msg, "file write")
 }
 
+// validateFileResp 把 file 响应里的业务错误收敛成 bridge 层 error。
 func validateFileResp(expectedOp, actualOp string, code int, msg, fallback string) error {
 	if code != 1 {
 		message := strings.TrimSpace(msg)
@@ -450,6 +462,7 @@ func validateFileResp(expectedOp, actualOp string, code int, msg, fallback strin
 	return nil
 }
 
+// sha256FileHex 计算本地文件摘要，供 offer 会话做哈希校验。
 func sha256FileHex(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -464,6 +477,7 @@ func sha256FileHex(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// newFileSessionID 生成一次新的传输 session_id，供 pull/offer 会话对齐。
 func newFileSessionID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {

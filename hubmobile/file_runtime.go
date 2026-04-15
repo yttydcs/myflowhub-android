@@ -1,6 +1,6 @@
 package hubmobile
 
-// Context: This file supports the Android app or gomobile host flow around file_runtime.
+// 本文件承载 Android `hubmobile` 桥接中与 `file_runtime` 相关的逻辑。
 
 import (
 	"context"
@@ -67,6 +67,7 @@ type mobileFileConn struct {
 	mu   sync.RWMutex
 }
 
+// ensureFileRuntime 懒初始化移动端 file runtime，供多个文件操作共享同一处理管线。
 func ensureFileRuntime() *mobileFileRuntime {
 	fileRuntimeMu.Lock()
 	defer fileRuntimeMu.Unlock()
@@ -77,6 +78,7 @@ func ensureFileRuntime() *mobileFileRuntime {
 	return fileRuntime
 }
 
+// onObservedFrame 把 SDK 观测到的 file 帧转交给本地 runtime 继续处理。
 func onObservedFrame(hdr core.IHeader, payload []byte) {
 	fileRuntimeMu.Lock()
 	rt := fileRuntime
@@ -87,6 +89,7 @@ func onObservedFrame(hdr core.IHeader, payload []byte) {
 	rt.observe(hdr, payload)
 }
 
+// newMobileFileRuntime 在 Android 进程内拼一套最小 file server/connmgr/handler。
 func newMobileFileRuntime(send func(core.IHeader, []byte) error, log *slog.Logger) *mobileFileRuntime {
 	if log == nil {
 		log = globalLogger
@@ -118,6 +121,7 @@ func newMobileFileRuntime(send func(core.IHeader, []byte) error, log *slog.Logge
 	return rt
 }
 
+// configure 在每次 file 操作前刷新本地 node/hub 路由和文件根目录。
 func (rt *mobileFileRuntime) configure(localNodeID, hubNodeID uint32, baseDir string) (string, error) {
 	if rt == nil {
 		return "", errors.New("file runtime unavailable")
@@ -140,6 +144,7 @@ func (rt *mobileFileRuntime) configure(localNodeID, hubNodeID uint32, baseDir st
 	return resolvedBaseDir, nil
 }
 
+// observe 只缓存当前 runtime 关心的 file 帧，避免直接在 SDK 回调线程里重处理。
 func (rt *mobileFileRuntime) observe(hdr core.IHeader, payload []byte) {
 	if rt == nil || !shouldHandleObservedFileFrame(hdr, payload) {
 		return
@@ -157,6 +162,7 @@ func (rt *mobileFileRuntime) observe(hdr core.IHeader, payload []byte) {
 	}
 }
 
+// loop 在后台串行把观测到的 file 帧交给 subproto/file handler 处理。
 func (rt *mobileFileRuntime) loop() {
 	for {
 		select {
@@ -169,6 +175,7 @@ func (rt *mobileFileRuntime) loop() {
 	}
 }
 
+// shouldHandleObservedFileFrame 只接住与 file 会话推进相关的 ctrl/data/ack 帧。
 func shouldHandleObservedFileFrame(hdr core.IHeader, payload []byte) bool {
 	if hdr == nil || hdr.SubProto() != protocolfile.SubProtoFile || len(payload) == 0 {
 		return false
@@ -191,6 +198,7 @@ func shouldHandleObservedFileFrame(hdr core.IHeader, payload []byte) bool {
 	}
 }
 
+// sendCurrentClientFrame 借当前 await client 把 file runtime 生成的响应重新发回网络。
 func sendCurrentClientFrame(hdr core.IHeader, payload []byte) error {
 	if hdr == nil {
 		return errors.New("header is required")
@@ -212,6 +220,7 @@ func sendCurrentClientFrame(hdr core.IHeader, payload []byte) error {
 	return nil
 }
 
+// resolveLocalBaseDir 校验并创建本地文件根目录，保证后续路径都落在绝对路径上。
 func resolveLocalBaseDir(baseDir string) (string, error) {
 	baseDir = strings.TrimSpace(baseDir)
 	if baseDir == "" {
@@ -227,6 +236,7 @@ func resolveLocalBaseDir(baseDir string) (string, error) {
 	return abs, nil
 }
 
+// resolveLocalDownloadPath 把远端 dir/name 安全映射到本地根目录下的真实文件路径。
 func resolveLocalDownloadPath(baseDir, dir, name string) (string, error) {
 	baseDir, err := resolveLocalBaseDir(baseDir)
 	if err != nil {
@@ -255,6 +265,7 @@ func resolveLocalDownloadPath(baseDir, dir, name string) (string, error) {
 	return absTarget, nil
 }
 
+// sanitizeRemoteDir 过滤绝对路径、盘符和 `..`，防止远端目录穿透本地根目录。
 func sanitizeRemoteDir(dir string) (string, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" || dir == "." {
@@ -282,6 +293,7 @@ func sanitizeRemoteDir(dir string) (string, error) {
 	return clean, nil
 }
 
+// sanitizeRemoteName 只接受单个文件名片段，拒绝路径分隔符和空名。
 func sanitizeRemoteName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." {
@@ -293,6 +305,7 @@ func sanitizeRemoteName(name string) (string, error) {
 	return name, nil
 }
 
+// parseWantHash 把 UI 文本参数归一成布尔值，默认开启摘要校验。
 func parseWantHash(raw string) (bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -305,10 +318,12 @@ func parseWantHash(raw string) (bool, error) {
 	return ok, nil
 }
 
+// isASCIIAlpha 仅用于识别 Windows 盘符前缀。
 func isASCIIAlpha(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
+// newMobileFileConn 构造一个最小连接壳，用于让 file handler 复用现有 server 接口。
 func newMobileFileConn(id string) *mobileFileConn {
 	return &mobileFileConn{
 		id:   id,
@@ -389,6 +404,7 @@ func (s *mobileFileServer) UpdateNodeID(nodeID uint32) {
 
 func (s *mobileFileServer) EventBus() eventbus.IBus { return nil }
 
+// Send 复用当前 runtime 的发送函数，把 handler 产出的 file 帧重新发回网络层。
 func (s *mobileFileServer) Send(_ context.Context, connID string, hdr core.IHeader, payload []byte) error {
 	if strings.TrimSpace(connID) == "" {
 		return errors.New("conn_id is required")

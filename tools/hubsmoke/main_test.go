@@ -1,6 +1,6 @@
 package main
 
-// Context: This file supports the Android app or gomobile host flow around main_test.
+// 本文件覆盖 Android `hubmobile` 冒烟工具中与 `main` 相关的行为。
 
 import (
 	"bytes"

@@ -1,5 +1,5 @@
 package com.myflowhub.android
-// Context: This file supports the Android app or gomobile host flow around GoReflect.
+// 本文件实现 Android 宿主中与 `GoReflect` 相关的逻辑。
 
 import java.lang.reflect.Method
 import java.lang.reflect.InvocationTargetException

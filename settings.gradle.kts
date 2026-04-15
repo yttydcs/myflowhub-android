@@ -1,4 +1,4 @@
-// Context: This file supports the Android app or gomobile host flow around settings.gradle.
+// 本文件承载 Android 工程中与 `settings` 相关的构建配置。
 
 pluginManagement {
     repositories {
